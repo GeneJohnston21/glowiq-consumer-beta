@@ -1,0 +1,15 @@
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  // Allow large image uploads (profile photos, product scans)
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
+  // Required for Supabase auth helpers
+  experimental: {
+    serverComponentsExternalPackages: ['@supabase/auth-helpers-nextjs'],
+  },
+}
+
+module.exports = nextConfig
