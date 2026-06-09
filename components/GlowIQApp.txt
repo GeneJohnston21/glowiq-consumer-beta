@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { storage } from "../lib/storage";
+import { getSupabase } from "../lib/supabase";
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
@@ -631,6 +632,13 @@ export default function GlowIQ() {
     }
   }, [phase, analysis]);
 
+  const handleSignOut = async () => {
+    try {
+      await getSupabase().auth.signOut();
+    } catch(e) { /* continue */ }
+    window.location.href = "/";
+  };
+
   const reset = () => {
     setPhase("upload"); setAngles({ front:null, left:null, right:null }); setAnalysis(null);
     setError(null); setFromHistory(false); setQuality(null);
@@ -1176,7 +1184,13 @@ Include concentrations when found. List top 3–5 actives.`
         {/* Clear all data — visible in profile/onboarding */}
         {(
           <div style={{ marginTop:36, paddingTop:24, borderTop:`1px solid ${BR}` }}>
-            <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.18em", color:DM, textTransform:"uppercase", marginBottom:14 }}>Data</div>
+            <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.18em", color:DM, textTransform:"uppercase", marginBottom:14 }}>Account</div>
+            <button className="lbtn" onClick={handleSignOut}
+              style={{ width:"100%", padding:"12px", borderRadius:10, background:"transparent",
+                border:`1px solid ${BR}`, fontFamily:FS, fontSize:12,
+                letterSpacing:"0.08em", color:MU, cursor:"pointer", textTransform:"uppercase", marginBottom:10 }}>
+              Sign Out
+            </button>
             {!clearConfirm ? (
               <button className="lbtn" onClick={() => setClearConfirm(true)}
                 style={{ width:"100%", padding:"12px", borderRadius:10, background:"transparent",
