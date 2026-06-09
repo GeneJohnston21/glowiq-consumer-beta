@@ -487,6 +487,7 @@ export default function GlowIQ() {
   const [profileStep,  setProfileStep]  = useState(0);
   const [scanningProd, setScanProd]     = useState(false);
   const [msgIdx,       setMsgIdx]       = useState(0);
+  const [deletingId,   setDeletingId]   = useState(null);
   const [pendingResult,setPendingResult] = useState(null);
   const [finalMsgDone, setFinalMsgDone]  = useState(false);
   const [scanStatus,   setScanStatus]  = useState(null);
@@ -579,6 +580,15 @@ export default function GlowIQ() {
   };
 
   /* ── Save to storage ────────────────────────────────────────────── */
+  const deleteFromHistory = async (id) => {
+    const updated = history.filter(e => e.id !== id);
+    setHistory(updated);
+    setDeletingId(null);
+    await storage.set("glow:index", JSON.stringify(updated));
+    // If the deleted entry is currently displayed, clear it
+    if (analysis?.id === id) { setAnalysis(null); setPhase("upload"); }
+  };
+
   const saveToHistory = async (result, preview) => {
     try {
       const id    = Date.now().toString();
@@ -2346,14 +2356,32 @@ Include concentrations when found. List top 3–5 actives.`
                             {(entry.concerns||[]).length > 3 && <span style={{ fontFamily:FS, fontSize:10, color:DM }}>+{entry.concerns.length-3} more</span>}
                           </div>
                         </div>
-                        <div style={{ display:"flex", flexDirection:"column", gap:5, flexShrink:0 }}>
-                          <button className="lbtn" onClick={() => { setAnalysis(entry); setAngles({ front:{ preview:entry.thumb, b64:entry.thumb.split(",")[1] }, left:null, right:null }); setFromHistory(true); setActiveTab("summary"); }}
-                            style={{ padding:"5px 10px", borderRadius:6, background:"transparent", border:`1px solid ${BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:MU, textTransform:"uppercase", cursor:"pointer" }}>View</button>
-                          <button className="lbtn" onClick={() => toggle(entry.id)}
-                            style={{ padding:"5px 10px", borderRadius:6, background:isSel?"rgba(44,74,114,.15)":"transparent", border:`1px solid ${isSel?G:BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:isSel?G:MU, textTransform:"uppercase", cursor:"pointer" }}>
-                            {isSel ? "✓ Sel" : "Select"}
-                          </button>
-                        </div>
+                        {deletingId === entry.id ? (
+                          <div style={{ display:"flex", flexDirection:"column", gap:5, flexShrink:0, alignItems:"flex-end" }}>
+                            <span style={{ fontFamily:FS, fontSize:10, color:MU, marginBottom:2 }}>Delete scan?</span>
+                            <button className="lbtn" onClick={() => deleteFromHistory(entry.id)}
+                              style={{ padding:"5px 10px", borderRadius:6, background:"rgba(185,28,28,.1)", border:"1px solid rgba(185,28,28,.35)", fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:"#B91C1C", textTransform:"uppercase", cursor:"pointer" }}>
+                              Delete
+                            </button>
+                            <button className="lbtn" onClick={() => setDeletingId(null)}
+                              style={{ padding:"5px 10px", borderRadius:6, background:"transparent", border:`1px solid ${BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:MU, textTransform:"uppercase", cursor:"pointer" }}>
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display:"flex", flexDirection:"column", gap:5, flexShrink:0 }}>
+                            <button className="lbtn" onClick={() => { setAnalysis(entry); setAngles({ front:{ preview:entry.thumb, b64:entry.thumb.split(",")[1] }, left:null, right:null }); setFromHistory(true); setActiveTab("summary"); }}
+                              style={{ padding:"5px 10px", borderRadius:6, background:"transparent", border:`1px solid ${BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:MU, textTransform:"uppercase", cursor:"pointer" }}>View</button>
+                            <button className="lbtn" onClick={() => toggle(entry.id)}
+                              style={{ padding:"5px 10px", borderRadius:6, background:isSel?"rgba(44,74,114,.15)":"transparent", border:`1px solid ${isSel?G:BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:isSel?G:MU, textTransform:"uppercase", cursor:"pointer" }}>
+                              {isSel ? "✓ Sel" : "Select"}
+                            </button>
+                            <button className="lbtn" onClick={() => setDeletingId(entry.id)}
+                              style={{ padding:"5px 10px", borderRadius:6, background:"transparent", border:"1px solid rgba(185,28,28,.25)", fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:"#B91C1C", textTransform:"uppercase", cursor:"pointer" }}>
+                              Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
