@@ -312,25 +312,7 @@ const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", { month:"shor
 function ConfidenceBars({ level = "Medium" }) {
   const n     = { High:3, Medium:2, Low:1 }[level] ?? 1;
   const color = { High:"#14532D", Medium:"#7C2D12", Low:"#B91C1C" }[level] ?? "#6B7280";
-  const getProviderLocation = () => {
-    if (!navigator.geolocation) {
-      setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
-      return;
-    }
-    setGeoLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        setProviderMapUrl(`https://maps.google.com/maps?q=medspa+aesthetic+clinic&output=embed&center=${lat},${lng}&zoom=13`);
-        setGeoLoading(false);
-      },
-      () => {
-        setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
-        setGeoLoading(false);
-      },
-      { timeout:8000 }
-    );
-  };
+
 
   return (
     <div title={`${level} confidence`} style={{ display:"flex", alignItems:"flex-end", gap:2, flexShrink:0, background:"rgba(44,74,114,.08)", padding:"3px 5px", borderRadius:4 }}>
@@ -2278,6 +2260,26 @@ Include concentrations when found. List top 3–5 actives.`
           ← Progress
         </button>
       </div>
+    );
+  };
+
+  const getProviderLocation = () => {
+    if (!navigator.geolocation) {
+      setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        setProviderMapUrl(`https://maps.google.com/maps?q=medspa+aesthetic+clinic&output=embed&center=${lat},${lng}&zoom=13`);
+        setGeoLoading(false);
+      },
+      () => {
+        setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
+        setGeoLoading(false);
+      },
+      { timeout:8000 }
     );
   };
 
