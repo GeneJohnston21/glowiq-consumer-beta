@@ -159,7 +159,7 @@ const SUN_OPTIONS          = [["minimal","Minimal","Mostly indoors"],["moderate"
 const SPF_OPTIONS          = [["never","Never"],["sometimes","Sometimes"],["daily","Every day"]];
 
 const DEFAULT_PROFILE = {
-  age:"", fitzpatrickType:"", goals:[], conditions:[], allergies:"", sensitivities:[],
+  name:"", age:"", fitzpatrickType:"", goals:[], conditions:[], allergies:"", sensitivities:[],
   medications:[], pregnant:"no", recentProcedures:[], procedureTiming:"",
   sunExposure:"", spfHabit:"", products:[], completedAt:null,
 };
@@ -935,6 +935,12 @@ Include concentrations when found. List top 3–5 actives.`
     const stepContent = () => {
       if (step === 0) return (
         <div>
+          <SectionLabel t="Your Name" />
+          <input type="text" placeholder="First and last name"
+            value={profile.name||""}
+            onChange={e => updPro("name", e.target.value)}
+            style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:`1px solid ${BR}`, background:"rgba(255,255,255,.92)", fontFamily:FS, fontSize:16, color:TX, outline:"none", marginBottom:4 }} />
+
           <SectionLabel t="Age" />
           <input type="number" placeholder="e.g. 32" min="13" max="99"
             value={profile.age}
