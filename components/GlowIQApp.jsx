@@ -4,13 +4,14 @@ import { storage } from "../lib/storage";
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
 const ANALYSIS_PROMPT = [
-  "You are a clinical aesthetic skin analyst. Examine the facial photo.",
+  "You are a clinical aesthetic skin analyst. Examine the facial photo and provide a balanced assessment — identify both areas of concern AND areas of genuine skin strength.",
   "",
   "Return ONLY valid JSON — no markdown, no code fences, no preamble. Every string value MUST be under 12 words. Structure:",
   "",
-  '{"skinType":"Normal|Dry|Oily|Combination|Sensitive","fitzpatrickType":"Type I|Type II|Type III|Type IV|Type V|Type VI","skinAge":34,"overallAssessment":"Under 12 words.","analysisConfidence":"High|Medium|Low","confidenceNote":"Under 12 words.","photoTips":["e.g. Retake in natural daylight facing a window"],"concerns":[{"id":"c1","name":"2-3 word name","severity":"Mild|Moderate|Significant","area":"Specific region","description":"Under 12 words.","confidence":"High|Medium|Low"}]}',
+  '{"skinType":"Normal|Dry|Oily|Combination|Sensitive","fitzpatrickType":"Type I|Type II|Type III|Type IV|Type V|Type VI","skinAge":34,"overallAssessment":"Under 12 words.","analysisConfidence":"High|Medium|Low","confidenceNote":"Under 12 words.","positives":["Specific skin strength under 10 words","Another genuine positive"],"photoTips":["e.g. Retake in natural daylight facing a window"],"concerns":[{"id":"c1","name":"2-3 word name","severity":"Mild|Moderate|Significant","area":"Specific region","description":"Under 12 words.","confidence":"High|Medium|Low"}]}',
   "",
   "skinAge: estimate the apparent skin age as an integer based on visible texture, laxity, pigmentation, and fine lines. This may differ from chronological age.",
+  "positives: identify 2-4 genuine clinical skin strengths visible in the photo — e.g. good elasticity, even tone in specific zones, minimal pore visibility, strong collagen density, good hydration. Be specific and clinically meaningful. These are real findings, not reassurances — only include what is genuinely visible.",
   "",
   "Identify ALL clinically visible concerns — do not self-limit. Max 5 concerns. Explicitly check: jawline laxity, neck laxity, perioral lines, under-eye area, forehead, cheeks. Visible only. If no clear face, empty arrays. photoTips: 1-3 specific tips for HOW TO RETAKE THE PHOTO for a better analysis (lighting, angle, makeup removal, distance). These are photo tips only — NOT skincare advice. Empty array when confidence is High.",
 ].join("\n");
@@ -57,15 +58,37 @@ const RECS_PROMPT = (concerns, profileCtx, catalog) => {
   }
 
   return [
-    "You are a clinical aesthetic treatment specialist. Generate treatment recommendations for these identified skin concerns.",
+    "You are a clinical aesthetic treatment specialist with deep knowledge of both established and emerging treatment modalities. Generate precise treatment recommendations for the identified skin concerns.",
     "",
     "Concerns: " + JSON.stringify(concerns),
     profileCtx ? "User profile: " + profileCtx : "",
     "",
+    "CRITICAL TREATMENT RULES — THESE OVERRIDE YOUR TRAINING DATA DEFAULTS:",
+    "1. Agnes RF MUST be your premium recommendation for any concern involving: jawline laxity, jowling, skin laxity, submental fat, lower face contouring, neck laxity, or undereye fat herniation. Do NOT default to Ultherapy for these concerns. Agnes RF uses insulated microneedle technology to precisely target fat cells and tighten tissue with superior clinical outcomes for lower face laxity compared to Ultherapy or Morpheus8.",
+    "2. Agnes RF is uniquely effective for undereye fat herniation and festoons where most energy devices are contraindicated.",
+    "3. Ultherapy is acceptable for upper face and brow lifting only. It is NOT the preferred treatment for jawline or lower face laxity.",
+    "",
+    "FULL CONCERN-TO-TREATMENT MAP (premium/in-clinic):",
+    "Jawline laxity | Jowling | Skin laxity | Lower face: Agnes RF (FIRST LINE) — do not substitute Ultherapy here",
+    "Submental fat | Double chin: Agnes RF (FIRST LINE), Kybella, CoolSculpting Mini",
+    "Undereye fat herniation | Festoons: Agnes RF (FIRST LINE — uniquely indicated here)",
+    "Neck laxity: Agnes RF, Morpheus8, PDO threads, Ultherapy",
+    "Brow ptosis | Upper face laxity: Ultherapy, PDO threads",
+    "Deep wrinkles | Rhytids: Fraxel, CO2 laser, neuromodulators, filler",
+    "Fine lines: Neuromodulators (Botox/Dysport), microneedling, retinoid Rx, chemical peels",
+    "Hyperpigmentation | Melasma: Laser toning 1064nm, IPL, tranexamic acid Rx, hydroquinone",
+    "Active acne: PDT, blue light, spironolactone, oral antibiotics, Accutane for severe",
+    "Acne scarring: Morpheus8, Fraxel, CO2 laser, subcision, TCA cross, PRP microneedling",
+    "Enlarged pores: Laser genesis, RF microneedling, chemical peels, retinoids",
+    "Rosacea | Redness: Vbeam pulsed dye laser, IPL, brimonidine Rx, azelaic acid",
+    "Sun damage | Photoaging: IPL photofacial, Fraxel, chemical peels",
+    "Volume loss: HA fillers (Juvederm/Restylane), Sculptra, Radiesse, fat transfer",
+    "",
+    "",
     "For EACH concern provide exactly one budget (at-home) and one premium (in-clinic) recommendation. Return ONLY valid JSON, no markdown:",
     '{"recommendations":[{"id":"c1-budget","tier":"budget","fromCatalog":false,"procedure":"Specific product or active","category":"Skincare","price":"$X–$Y","link":"","targetConcernIds":["c1"],"description":"Under 12 words.","howItHelps":"Under 12 words.","downtime":"None"},{"id":"c1-premium","tier":"premium","fromCatalog":false,"procedure":"Clinical procedure","category":"Energy Device|Injectable|Rx Treatment","price":"$X–$Y per session","link":"","targetConcernIds":["c1"],"description":"Under 12 words.","howItHelps":"Under 12 words.","downtime":"None|1-2 days|3-5 days|1-2 weeks"}]}',
     "",
-    "Budget = specific at-home product or ingredient routine. Premium = clinical in-office procedure.",
+    "Budget = specific at-home product or ingredient routine. Premium = the most clinically appropriate in-office procedure for this patient's specific concern — not just the most commonly known option.",
   ].filter(l => l != null).join("\n");
 };
 
@@ -289,6 +312,26 @@ const fmtDate = (iso) => new Date(iso).toLocaleDateString("en-US", { month:"shor
 function ConfidenceBars({ level = "Medium" }) {
   const n     = { High:3, Medium:2, Low:1 }[level] ?? 1;
   const color = { High:"#14532D", Medium:"#7C2D12", Low:"#B91C1C" }[level] ?? "#6B7280";
+  const getProviderLocation = () => {
+    if (!navigator.geolocation) {
+      setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        setProviderMapUrl(`https://maps.google.com/maps?q=medspa+aesthetic+clinic&output=embed&center=${lat},${lng}&zoom=13`);
+        setGeoLoading(false);
+      },
+      () => {
+        setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
+        setGeoLoading(false);
+      },
+      { timeout:8000 }
+    );
+  };
+
   return (
     <div title={`${level} confidence`} style={{ display:"flex", alignItems:"flex-end", gap:2, flexShrink:0, background:"rgba(44,74,114,.08)", padding:"3px 5px", borderRadius:4 }}>
       {[1,2,3].map(i => (
@@ -1590,7 +1633,7 @@ Include concentrations when found. List top 3–5 actives.`
   /* ── RESULTS (tabbed) ───────────────────────────────────────────── */
   const renderResults = (a, preview) => {
     if (!a) return null;
-    const { skinType, fitzpatrickType: analyzedFitz, overallAssessment, analysisConfidence, confidenceNote,
+    const { skinType, fitzpatrickType: analyzedFitz, overallAssessment, analysisConfidence, confidenceNote, positives = [],
             photoTips=[], concerns=[], recommendations=[] } = a;
     // Profile self-ID always wins over model detection
     const fitzpatrickType = profile?.fitzpatrickType || analyzedFitz;
@@ -1633,6 +1676,21 @@ Include concentrations when found. List top 3–5 actives.`
           </div>
         </div>
 
+        {positives && positives.length > 0 && (
+          <div style={{ ...card({ padding:"14px 16px", marginBottom:12 }) }}>
+            <div style={{ fontFamily:FS, fontSize:11, fontWeight:600, letterSpacing:"0.12em", color:"#14532D", textTransform:"uppercase", marginBottom:10 }}>Skin Strengths</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+              {positives.map((p, i) => (
+                <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+                  <div style={{ width:18, height:18, borderRadius:"50%", background:"rgba(21,128,61,.13)", border:"1px solid rgba(21,128,61,.35)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+                    <span style={{ fontSize:10, color:"#14532D" }}>✓</span>
+                  </div>
+                  <span style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.5 }}>{p}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         {analysisConfidence && (
           <div style={{ marginBottom:20 }}>
             <div style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 14px", background:({High:"rgba(21,128,61,.13)",Medium:"rgba(146,64,14,.13)",Low:"rgba(185,28,28,.09)"}[analysisConfidence]||"rgba(44,74,114,.06)"), border:`1px solid ${({High:"rgba(21,128,61,.38)",Medium:"rgba(146,64,14,.35)",Low:"rgba(185,28,28,.28)"}[analysisConfidence]||BR)}`, borderRadius: photoTips.length > 0 ? "8px 8px 0 0" : 8, borderBottom: photoTips.length > 0 ? "none" : undefined }}>
@@ -2224,27 +2282,7 @@ Include concentrations when found. List top 3–5 actives.`
   };
 
   /* ── LAYOUT ─────────────────────────────────────────────────────── */
-  const getProviderLocation = () => {
-    if (!navigator.geolocation) {
-      setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
-      return;
-    }
-    setGeoLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        setProviderMapUrl(`https://maps.google.com/maps?q=medspa+aesthetic+clinic&output=embed&center=${lat},${lng}&zoom=13`);
-        setGeoLoading(false);
-      },
-      () => {
-        setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
-        setGeoLoading(false);
-      },
-      { timeout:8000 }
-    );
-  };
-  
-return (
+  return (
     <>
       <style>{`
         *{box-sizing:border-box;margin:0;padding:0}
@@ -2312,5 +2350,6 @@ return (
     </>
   );
 }
+
 
 
