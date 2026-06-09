@@ -1,39 +1,37 @@
 'use client'
 
-
 import { useEffect, useState } from 'react'
 import { createClient } from '../lib/supabase'
 import GlowIQApp from '../components/GlowIQApp'
 
-export default function Home() {
-  const [user, setUser]       = useState(undefined) // undefined = loading
+export default function HomeClient() {
+  const [user, setUser]       = useState(undefined)
   const [email, setEmail]     = useState('')
   const [sent, setSent]       = useState(false)
   const [error, setError]     = useState(null)
-  const supabase              = createClient()
+  const [supabase]            = useState(() => createClient())
 
   useEffect(() => {
-    // Check current session
-    if (supabase) supabase.auth.getUser().then(({ data: { user } }) => setUser(user ?? null))
-
-    // Listen for auth changes (magic link callback)
-    if (!supabase) return
+    if (!supabase) { setUser(null); return; }
+    supabase.auth.getUser().then(({ data: { user } }) => setUser(user ?? null))
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
     })
     return () => subscription.unsubscribe()
-  }, [])
+  }, [supabase])
 
-const sendMagicLink = async (e) => {
-  e.preventDefault()
-  setError(null)
-  if (!supabase) { setError("Auth not available"); return; }
-  const { error } = await supabase.auth.signInWithOtp({ email })
-  if (error) setError(error.message)
-  else setSent(true)
-}
+  const sendMagicLink = async (e) => {
+    e.preventDefault()
+    setError(null)
+    if (!supabase) { setError('Auth not available'); return; }
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    })
+    if (error) setError(error.message)
+    else setSent(true)
+  }
 
-  // Loading
   if (user === undefined) {
     return (
       <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#E8EDF5' }}>
@@ -43,12 +41,10 @@ const sendMagicLink = async (e) => {
     )
   }
 
-  // Not logged in — show minimal email login
   if (!user) {
     return (
       <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'#E8EDF5', padding:24, gap:24 }}>
         <div style={{ textAlign:'center' }}>
-          {/* Iris mark */}
           <svg width="52" height="52" viewBox="0 0 60 60" style={{ marginBottom:16 }}>
             <circle cx="30" cy="30" r="22" fill="none" stroke="#2C4A72" strokeWidth="0.75" opacity="0.38"/>
             <circle cx="30" cy="30" r="14" fill="none" stroke="#2C4A72" strokeWidth="1.75"/>
@@ -92,6 +88,5 @@ const sendMagicLink = async (e) => {
     )
   }
 
-  // Logged in — render the full app
   return <GlowIQApp />
 }
