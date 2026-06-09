@@ -1,6 +1,5 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
 
 import { useEffect, useState } from 'react'
 import { createClient } from '../lib/supabase'
@@ -15,9 +14,10 @@ export default function Home() {
 
   useEffect(() => {
     // Check current session
-    supabase.auth.getUser().then(({ data: { user } }) => setUser(user ?? null))
+    if (supabase) supabase.auth.getUser().then(({ data: { user } }) => setUser(user ?? null))
 
     // Listen for auth changes (magic link callback)
+    if (!supabase) return
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
     })
@@ -27,6 +27,7 @@ export default function Home() {
 const sendMagicLink = async (e) => {
   e.preventDefault()
   setError(null)
+  if (!supabase) { setError("Auth not available"); return; }
   const { error } = await supabase.auth.signInWithOtp({ email })
   if (error) setError(error.message)
   else setSent(true)
