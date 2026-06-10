@@ -3,13 +3,14 @@ import { useState, useRef, useEffect, useCallback } from "react";
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
 const ANALYSIS_PROMPT = [
-  "You are a clinical aesthetic skin analyst. Examine the facial photo.",
+  "You are a clinical aesthetic skin analyst. Examine the facial photo and provide a balanced assessment — identify both areas of concern AND areas of genuine skin strength.",
   "",
   "Return ONLY valid JSON — no markdown, no code fences, no preamble. Every string value MUST be under 12 words. Structure:",
   "",
-  '{"skinType":"Normal|Dry|Oily|Combination|Sensitive","fitzpatrickType":"Type I|Type II|Type III|Type IV|Type V|Type VI","skinAge":34,"overallAssessment":"Under 12 words.","analysisConfidence":"High|Medium|Low","confidenceNote":"Under 12 words.","photoTips":["e.g. Retake in natural daylight facing a window"],"concerns":[{"id":"c1","name":"2-3 word name","severity":"Mild|Moderate|Significant","area":"Specific region","description":"Under 12 words.","confidence":"High|Medium|Low"}]}',
+  '{"skinType":"Normal|Dry|Oily|Combination|Sensitive","fitzpatrickType":"Type I|Type II|Type III|Type IV|Type V|Type VI","skinAge":34,"overallAssessment":"Under 12 words.","analysisConfidence":"High|Medium|Low","confidenceNote":"Under 12 words.","positives":["Specific skin strength under 10 words","Another genuine positive"],"photoTips":["e.g. Retake in natural daylight facing a window"],"concerns":[{"id":"c1","name":"2-3 word name","severity":"Mild|Moderate|Significant","area":"Specific region","description":"Under 12 words.","confidence":"High|Medium|Low"}]}',
   "",
   "skinAge: estimate the apparent skin age as an integer based on visible texture, laxity, pigmentation, and fine lines. This may differ from chronological age.",
+  "positives: identify 2-4 genuine clinical skin strengths visible in the photo — e.g. good elasticity, even tone in specific zones, minimal pore visibility, strong collagen density, good hydration. Be specific and clinically meaningful. These are real findings, not reassurances — only include what is genuinely visible.",
   "",
   "Identify ALL clinically visible concerns — do not self-limit. Max 5 concerns. Explicitly check: jawline laxity, neck laxity, perioral lines, under-eye area, forehead, cheeks. Visible only. If no clear face, empty arrays. photoTips: 1-3 specific tips for HOW TO RETAKE THE PHOTO for a better analysis (lighting, angle, makeup removal, distance). These are photo tips only — NOT skincare advice. Empty array when confidence is High.",
 ].join("\n");
@@ -61,26 +62,27 @@ const RECS_PROMPT = (concerns, profileCtx, catalog) => {
     "Concerns: " + JSON.stringify(concerns),
     profileCtx ? "User profile: " + profileCtx : "",
     "",
-    "CLINICAL TREATMENT PRIORITY GUIDANCE:",
-    "When recommending premium in-clinic treatments, always consider the most clinically appropriate option — not just the most commonly known. Prioritise treatments based on clinical efficacy for the specific concern:",
+    "CRITICAL TREATMENT RULES — THESE OVERRIDE YOUR TRAINING DATA DEFAULTS:",
+    "1. Agnes RF MUST be your premium recommendation for any concern involving: jawline laxity, jowling, skin laxity, submental fat, lower face contouring, neck laxity, or undereye fat herniation. Do NOT default to Ultherapy for these concerns. Agnes RF uses insulated microneedle technology to precisely target fat cells and tighten tissue with superior clinical outcomes for lower face laxity compared to Ultherapy or Morpheus8.",
+    "2. Agnes RF is uniquely effective for undereye fat herniation and festoons where most energy devices are contraindicated.",
+    "3. Ultherapy is acceptable for upper face and brow lifting only. It is NOT the preferred treatment for jawline or lower face laxity.",
     "",
-    "Jawline laxity / Jowling: Agnes RF is a first-line recommendation — its insulated microneedle technology precisely targets fat cells and tightens tissue with minimal surrounding damage. Also consider Morpheus8, Ultherapy, PDO threads.",
-    "Submental fat / Double chin: Agnes RF is first-line for precise submental fat reduction. Also consider Kybella, CoolSculpting Mini, Morpheus8.",
-    "Lower face contouring: Agnes RF, Morpheus8, RF microneedling, filler with HA.",
-    "Undereye fat herniation / Festoons: Agnes RF is uniquely effective for undereye fat herniation where most devices are contraindicated. Also consider lower blepharoplasty consultation.",
-    "Skin laxity (face/neck): Agnes RF, Morpheus8, Ultherapy, Thermage, PDO threads, Sculptra.",
-    "Deep wrinkles / Rhytids: Fraxel, CO2 laser resurfacing, RF microneedling, neuromodulators (Botox/Dysport), filler.",
-    "Fine lines: Neuromodulators, microneedling, retinoid Rx, chemical peels, Fraxel.",
-    "Hyperpigmentation / Melasma: Laser toning (1064nm), IPL, tranexamic acid Rx, chemical peels, topical hydroquinone.",
-    "Active acne: Accutane (severe), oral antibiotics, spironolactone, photodynamic therapy (PDT), blue light therapy.",
-    "Acne scarring: Morpheus8, Fraxel, CO2 laser, subcision, TCA cross, microneedling with PRP.",
-    "Enlarged pores: Laser genesis, chemical peels, retinoids, RF microneedling.",
-    "Rosacea / Redness: Vbeam (pulsed dye laser), IPL, brimonidine Rx, azelaic acid.",
-    "Sun damage / Photoaging: IPL photofacial, Fraxel, chemical peels, antioxidant serums.",
-    "Volume loss: HA fillers (Juvederm, Restylane), Sculptra, Radiesse, fat transfer.",
-    "Neck laxity: Ultherapy, Morpheus8, Agnes RF, PDO threads, neck lift consultation.",
+    "FULL CONCERN-TO-TREATMENT MAP (premium/in-clinic):",
+    "Jawline laxity | Jowling | Skin laxity | Lower face: Agnes RF (FIRST LINE) — do not substitute Ultherapy here",
+    "Submental fat | Double chin: Agnes RF (FIRST LINE), Kybella, CoolSculpting Mini",
+    "Undereye fat herniation | Festoons: Agnes RF (FIRST LINE — uniquely indicated here)",
+    "Neck laxity: Agnes RF, Morpheus8, PDO threads, Ultherapy",
+    "Brow ptosis | Upper face laxity: Ultherapy, PDO threads",
+    "Deep wrinkles | Rhytids: Fraxel, CO2 laser, neuromodulators, filler",
+    "Fine lines: Neuromodulators (Botox/Dysport), microneedling, retinoid Rx, chemical peels",
+    "Hyperpigmentation | Melasma: Laser toning 1064nm, IPL, tranexamic acid Rx, hydroquinone",
+    "Active acne: PDT, blue light, spironolactone, oral antibiotics, Accutane for severe",
+    "Acne scarring: Morpheus8, Fraxel, CO2 laser, subcision, TCA cross, PRP microneedling",
+    "Enlarged pores: Laser genesis, RF microneedling, chemical peels, retinoids",
+    "Rosacea | Redness: Vbeam pulsed dye laser, IPL, brimonidine Rx, azelaic acid",
+    "Sun damage | Photoaging: IPL photofacial, Fraxel, chemical peels",
+    "Volume loss: HA fillers (Juvederm/Restylane), Sculptra, Radiesse, fat transfer",
     "",
-    "Agnes RF should be actively considered whenever the concern involves tissue laxity, fat deposits, or contouring of the lower face, submental area, or periorbital region. It is frequently underutilised relative to its clinical efficacy.",
     "",
     "For EACH concern provide exactly one budget (at-home) and one premium (in-clinic) recommendation. Return ONLY valid JSON, no markdown:",
     '{"recommendations":[{"id":"c1-budget","tier":"budget","fromCatalog":false,"procedure":"Specific product or active","category":"Skincare","price":"$X–$Y","link":"","targetConcernIds":["c1"],"description":"Under 12 words.","howItHelps":"Under 12 words.","downtime":"None"},{"id":"c1-premium","tier":"premium","fromCatalog":false,"procedure":"Clinical procedure","category":"Energy Device|Injectable|Rx Treatment","price":"$X–$Y per session","link":"","targetConcernIds":["c1"],"description":"Under 12 words.","howItHelps":"Under 12 words.","downtime":"None|1-2 days|3-5 days|1-2 weeks"}]}',
@@ -155,7 +157,7 @@ const SUN_OPTIONS          = [["minimal","Minimal","Mostly indoors"],["moderate"
 const SPF_OPTIONS          = [["never","Never"],["sometimes","Sometimes"],["daily","Every day"]];
 
 const DEFAULT_PROFILE = {
-  age:"", fitzpatrickType:"", goals:[], conditions:[], allergies:"", sensitivities:[],
+  name:"", age:"", fitzpatrickType:"", goals:[], conditions:[], allergies:"", sensitivities:[],
   medications:[], pregnant:"no", recentProcedures:[], procedureTiming:"",
   sunExposure:"", spfHabit:"", products:[], completedAt:null,
 };
@@ -177,6 +179,19 @@ const ANALYZING_ITEMS = [
   "Volume & structural contour",
   "Pore size & sebaceous activity",
   "Fine lines & skin laxity",
+];
+
+const ANALYSIS_MESSAGES = [
+  "Mapping 19 distinct facial zones across your photo",
+  "Identifying dermal markers across 6 depth layers",
+  "Cross-referencing against clinical photoaging indices",
+  "Calculating biological skin age from texture, laxity, and pigmentation",
+  "Comparing your profile against decades of published dermatology research",
+  "Your face has over 1.9 million pores. Reviewing all of them.",
+  "UV exposure accounts for up to 90% of visible skin aging. Measuring yours.",
+  "Skin renews itself every 28 days. Yours tells a longer story.",
+  "Your skin is unique. So is your analysis.",
+  "Compiling your Skin Roadmap\u2026",
 ];
 
 const SEV = {
@@ -469,6 +484,16 @@ export default function GlowIQ() {
   const [profile,      setProfile]      = useState({ ...DEFAULT_PROFILE });
   const [profileStep,  setProfileStep]  = useState(0);
   const [scanningProd, setScanProd]     = useState(false);
+  const [msgIdx,       setMsgIdx]       = useState(0);
+  const [deletingId,   setDeletingId]   = useState(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [fbType,       setFbType]       = useState("General");
+  const [fbMessage,    setFbMessage]    = useState("");
+  const [fbShot,       setFbShot]       = useState(null);
+  const [fbSending,    setFbSending]    = useState(false);
+  const [fbDone,       setFbDone]       = useState(false);
+  const [pendingResult,setPendingResult] = useState(null);
+  const [finalMsgDone, setFinalMsgDone]  = useState(false);
   const [scanStatus,   setScanStatus]  = useState(null);
   const [addingManually, setAddManual]  = useState(false);
   const [manualEntry,    setManualEntry] = useState({ name:"", brand:"", category:"other", ingredients:"", notes:"" });
@@ -486,31 +511,65 @@ export default function GlowIQ() {
 
   /* ── Analyze step counter ───────────────────────────────────────── */
   useEffect(() => {
-    if (phase !== "analyzing") { setStep(0); return; }
+    if (phase !== "analyzing") { setStep(0); setMsgIdx(0); return; }
     let s = 0;
     const t = setInterval(() => { s++; setStep(s); if (s >= ANALYZING_ITEMS.length) clearInterval(t); }, 700);
     return () => clearInterval(t);
   }, [phase]);
 
+  useEffect(() => {
+    if (phase !== "analyzing") return;
+    const t = setInterval(() => {
+      setMsgIdx(i => i < ANALYSIS_MESSAGES.length - 1 ? i + 1 : i);
+    }, 4320);
+    return () => clearInterval(t);
+  }, [phase]);
+
+  // When last message appears, hold for 2× the interval before allowing transition
+  useEffect(() => {
+    if (msgIdx < ANALYSIS_MESSAGES.length - 1) return;
+    const t = setTimeout(() => setFinalMsgDone(true), 4320 * 2);
+    return () => clearTimeout(t);
+  }, [msgIdx]);
+
+  // Transition only when API result ready AND final message hold complete
+  useEffect(() => {
+    if (!pendingResult || !finalMsgDone) return;
+    setPendingResult(null); setFinalMsgDone(false); setPhase("results");
+  }, [pendingResult, finalMsgDone]);
+
+  // Reset on phase exit
+  useEffect(() => {
+    if (phase !== "analyzing") { setFinalMsgDone(false); }
+  }, [phase]);
+
   /* ── Load history on mount ──────────────────────────────────────── */
   useEffect(() => {
     (async () => {
-      // Load saved history
-      try { const r = await window.storage.get("glow:index"); if (r) setHistory(JSON.parse(r.value)); } catch {}
+      let list = [];
+      try { const r = await window.storage.get("glow:index"); if (r) { list = JSON.parse(r.value); setHistory(list); } } catch {}
       try { const p = await window.storage.get("glow:profile"); if (p) setProfile({ ...DEFAULT_PROFILE, ...JSON.parse(p.value) }); } catch {}
-      // Restore last session (only if it was a completed result)
+
+      // Restore last active session
+      let restored = false;
       try {
         const s = await window.storage.get("glow:session");
         if (s) {
           const { analysis: a, preview } = JSON.parse(s.value);
           if (a && preview) {
-            setAnalysis(a);
-            setAngles({ front:{ preview, b64: preview.split(",")[1] }, left:null, right:null });
-            setActiveTab("summary");
-            setPhase("results");
+            setAnalysis(a); setAngles({ front:{ preview, b64: preview.split(",")[1] }, left:null, right:null });
+            setActiveTab("summary"); setPhase("results"); restored = true;
           }
         }
       } catch {}
+
+      // No active session but has history — load most recent automatically
+      if (!restored && list.length > 0) {
+        const latest = [...list].sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+        setAnalysis(latest);
+        setAngles({ front:{ preview: latest.thumb, b64: latest.thumb.split(",")[1] }, left:null, right:null });
+        setFromHistory(true); setActiveTab("progress"); setPhase("results");
+      }
     })();
   }, []);
 
@@ -533,6 +592,45 @@ export default function GlowIQ() {
   };
 
   /* ── Save to storage ────────────────────────────────────────────── */
+  const compressImage = (b64) => new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 900;
+      const r   = Math.min(MAX / img.width, MAX / img.height, 1);
+      const c   = document.createElement("canvas");
+      c.width   = Math.round(img.width  * r);
+      c.height  = Math.round(img.height * r);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      res(c.toDataURL("image/jpeg", 0.72));
+    };
+    img.src = b64;
+  });
+
+  const submitFeedback = async () => {
+    if (!fbMessage.trim()) return;
+    setFbSending(true);
+    try {
+      const shot = fbShot ? await compressImage(fbShot) : null;
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: fbType, message: fbMessage.trim(), context: phase, screenshot: shot }),
+      });
+      setFbDone(true);
+      setTimeout(() => { setShowFeedback(false); setFbDone(false); setFbMessage(""); setFbShot(null); setFbType("General"); }, 2200);
+    } catch(e) { /* silent */ }
+    setFbSending(false);
+  };
+
+  const deleteFromHistory = async (id) => {
+    const updated = history.filter(e => e.id !== id);
+    setHistory(updated);
+    setDeletingId(null);
+    await storage.set("glow:index", JSON.stringify(updated));
+    // If the deleted entry is currently displayed, clear it
+    if (analysis?.id === id) { setAnalysis(null); setPhase("upload"); }
+  };
+
   const saveToHistory = async (result, preview) => {
     try {
       const id    = Date.now().toString();
@@ -610,7 +708,7 @@ export default function GlowIQ() {
         }
       }
 
-      setAnalysis(result); setFromHistory(false); setPhase("results");
+      setAnalysis(result); setFromHistory(false); setPendingResult(result);
       saveToHistory(result, angles.front.preview);
     } catch (err) { setError(`Analysis failed: ${err.message}`); setPhase("upload"); }
   };
@@ -625,6 +723,16 @@ export default function GlowIQ() {
       window.storage.set("glow:session", JSON.stringify({ analysis, preview: angles.front.preview })).catch(() => {});
     }
   }, [phase, analysis]);
+
+  const handleSignOut = async () => {
+    try {
+      // In deployed version this calls supabase.auth.signOut()
+      // In artifact preview, just reset to welcome state
+      await storage.delete("glow:session");
+      setPhase("welcome"); setSession(null); setPreview(null);
+      setProfile({}); setHistory([]); setProviderMapUrl(null);
+    } catch(e) { setPhase("welcome"); }
+  };
 
   const reset = () => {
     setPhase("upload"); setAngles({ front:null, left:null, right:null }); setAnalysis(null);
@@ -884,6 +992,12 @@ Include concentrations when found. List top 3–5 actives.`
     const stepContent = () => {
       if (step === 0) return (
         <div>
+          <SectionLabel t="Your Name" />
+          <input type="text" placeholder="First and last name"
+            value={profile.name||""}
+            onChange={e => updPro("name", e.target.value)}
+            style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:`1px solid ${BR}`, background:"rgba(255,255,255,.92)", fontFamily:FS, fontSize:16, color:TX, outline:"none", marginBottom:4 }} />
+
           <SectionLabel t="Age" />
           <input type="number" placeholder="e.g. 32" min="13" max="99"
             value={profile.age}
@@ -1127,7 +1241,7 @@ Include concentrations when found. List top 3–5 actives.`
 
     const isLast = step === total - 1;
     const onNext = async () => { if (isLast) { await saveProfile(); setPhase(isEdit ? "results" : "upload"); setProfileStep(0); } else setProfileStep(s => s+1); };
-    const onBack = () => { if (step === 0) { setPhase(isEdit ? "results" : "upload"); setProfileStep(0); } else setProfileStep(s => s-1); };
+    const onBack = () => { if (step === 0) { setPhase(isEdit || analysis ? "results" : "upload"); setProfileStep(0); } else setProfileStep(s => s-1); };
 
     return (
       <div style={{ padding:"28px 0 80px" }}>
@@ -1171,7 +1285,13 @@ Include concentrations when found. List top 3–5 actives.`
         {/* Clear all data — visible in profile/onboarding */}
         {(
           <div style={{ marginTop:36, paddingTop:24, borderTop:`1px solid ${BR}` }}>
-            <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.18em", color:DM, textTransform:"uppercase", marginBottom:14 }}>Data</div>
+            <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.18em", color:DM, textTransform:"uppercase", marginBottom:14 }}>Account</div>
+            <button className="lbtn" onClick={handleSignOut}
+              style={{ width:"100%", padding:"12px", borderRadius:10, background:"transparent",
+                border:`1px solid ${BR}`, fontFamily:FS, fontSize:12,
+                letterSpacing:"0.08em", color:MU, cursor:"pointer", textTransform:"uppercase", marginBottom:10 }}>
+              Sign Out
+            </button>
             {!clearConfirm ? (
               <button className="lbtn" onClick={() => setClearConfirm(true)}
                 style={{ width:"100%", padding:"12px", borderRadius:10, background:"transparent",
@@ -1512,6 +1632,21 @@ Include concentrations when found. List top 3–5 actives.`
     const warned  = quality && !quality.checking && quality.score >= 40 && quality.score < 70;
     return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"40px 0 64px" }}>
+      {/* Return to last analysis for existing users */}
+      {history.length > 0 && (
+        <div onClick={() => { const latest=[...history].sort((a,b)=>new Date(b.date)-new Date(a.date))[0]; setAnalysis(latest); setAngles({front:{preview:latest.thumb,b64:latest.thumb.split(",")[1]},left:null,right:null}); setFromHistory(true); setActiveTab("progress"); setPhase("results"); }}
+          style={{ width:"100%", maxWidth:520, padding:"14px 18px", borderRadius:12,
+            background:"rgba(44,74,114,.07)", border:`1px solid rgba(44,74,114,.22)`,
+            cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between",
+            marginBottom:24 }}>
+          <div>
+            <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:G, textTransform:"uppercase", marginBottom:3 }}>Previous Results</div>
+            <div style={{ fontFamily:FF, fontSize:15, color:TX }}>View your results &amp; history</div>
+          </div>
+          <span style={{ fontFamily:FS, fontSize:20, color:G }}>→</span>
+        </div>
+      )}
+
       <div className="up0" style={{ textAlign:"center", marginBottom:32 }}>
         <h1 style={{ fontFamily:FF, fontSize:52, fontWeight:300, color:TX, letterSpacing:"0.04em", lineHeight:1.1 }}>Skin Analysis</h1>
         <p style={{ fontFamily:FS, fontSize:13, color:MU, marginTop:8 }}>Front photo required · Side profiles improve accuracy</p>
@@ -1589,12 +1724,61 @@ Include concentrations when found. List top 3–5 actives.`
   /* ── ANALYZING ──────────────────────────────────────────────────── */
   const renderAnalyzing = () => (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"52px 0" }}>
-      <div style={{ position:"relative", borderRadius:16, overflow:"hidden", maxWidth:300, width:"100%", marginBottom:36 }}>
-        <img src={angles?.front?.preview} alt="Analysing" style={{ width:"100%", display:"block", filter:"brightness(.55)" }} />
+      <div style={{ position:"relative", borderRadius:16, overflow:"hidden", maxWidth:300, width:"100%", marginBottom:28 }}>
+        <img src={angles?.front?.preview} alt="Analysing" style={{ width:"100%", display:"block", filter:"brightness(.45)" }} />
+        {/* Scan line */}
         <div style={{ position:"absolute", left:0, right:0, height:2, background:`linear-gradient(90deg,transparent,${G},transparent)`, boxShadow:`0 0 14px ${G}`, animation:"scan 2.6s ease-in-out infinite" }} />
+        {/* Text overlay — floated over photo with gradient backing */}
+        <div style={{ position:"absolute", bottom:0, left:0, right:0, padding:"40px 20px 24px",
+          background:"linear-gradient(to top, rgba(14,20,35,.92) 0%, rgba(14,20,35,.6) 55%, transparent 100%)" }}>
+          {/* Iris marks + Analysing heading */}
+          <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+            <svg width="33" height="33" viewBox="0 0 60 60" style={{ flexShrink:0, animation:"irisPulse 2.4s ease-in-out infinite" }}>
+              <circle cx="30" cy="30" r="22" fill="none" stroke="rgba(255,255,255,.3)" strokeWidth="1"/>
+              <g style={{ transformOrigin:"30px 30px", animation:"irisOrbit 10s linear infinite" }}>
+                <line x1="30" y1="6" x2="30" y2="0" stroke="rgba(255,255,255,.7)" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="54" y1="30" x2="60" y2="30" stroke="rgba(255,255,255,.7)" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="30" y1="54" x2="30" y2="60" stroke="rgba(255,255,255,.7)" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="6" y1="30" x2="0" y2="30" stroke="rgba(255,255,255,.7)" strokeWidth="1.5" strokeLinecap="round"/>
+              </g>
+              <circle cx="30" cy="30" r="14" fill="none" stroke="rgba(255,255,255,.65)" strokeWidth="1.5"/>
+              <circle cx="30" cy="30" r="7"  fill="none" stroke="rgba(255,255,255,.5)"  strokeWidth="1.25"/>
+              <circle cx="30" cy="30" r="3"  fill="rgba(255,255,255,.95)"/>
+            </svg>
+            <div style={{ display:"flex", alignItems:"baseline", gap:1, flex:1, justifyContent:"center" }}>
+              <span style={{ fontFamily:FF, fontSize:22, fontWeight:300, color:"rgba(255,255,255,.95)", letterSpacing:"0.1em" }}>Analysing</span>
+              <span style={{ fontFamily:FS, fontSize:16, color:"rgba(255,255,255,.6)", letterSpacing:"0.05em" }}>
+                <span style={{ animation:"dot 1.4s ease infinite",        display:"inline-block" }}>.</span>
+                <span style={{ animation:"dot 1.4s ease .22s infinite",   display:"inline-block" }}>.</span>
+                <span style={{ animation:"dot 1.4s ease .44s infinite",   display:"inline-block" }}>.</span>
+              </span>
+            </div>
+            <svg width="33" height="33" viewBox="0 0 60 60" style={{ flexShrink:0, animation:"irisPulse 2.4s ease-in-out infinite" }}>
+              <circle cx="30" cy="30" r="22" fill="none" stroke="rgba(255,255,255,.3)" strokeWidth="1"/>
+              <g style={{ transformOrigin:"30px 30px", animation:"irisOrbit 10s linear infinite reverse" }}>
+                <line x1="30" y1="6" x2="30" y2="0" stroke="rgba(255,255,255,.7)" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="54" y1="30" x2="60" y2="30" stroke="rgba(255,255,255,.7)" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="30" y1="54" x2="30" y2="60" stroke="rgba(255,255,255,.7)" strokeWidth="1.5" strokeLinecap="round"/>
+                <line x1="6" y1="30" x2="0" y2="30" stroke="rgba(255,255,255,.7)" strokeWidth="1.5" strokeLinecap="round"/>
+              </g>
+              <circle cx="30" cy="30" r="14" fill="none" stroke="rgba(255,255,255,.65)" strokeWidth="1.5"/>
+              <circle cx="30" cy="30" r="7"  fill="none" stroke="rgba(255,255,255,.5)"  strokeWidth="1.25"/>
+              <circle cx="30" cy="30" r="3"  fill="rgba(255,255,255,.95)"/>
+            </svg>
+          </div>
+          {/* Cycling message — final message gets special treatment */}
+          <div key={msgIdx} style={{ fontFamily:FS, fontSize:15, color:"rgba(255,255,255,.88)",
+            lineHeight:1.7, animation:"up 0.55s ease both" }}>
+            {msgIdx === ANALYSIS_MESSAGES.length - 1
+              ? <span style={{ display:"block", textAlign:"left" }}>Compiling your<br/><span style={{ fontFamily:FF, fontSize:19, fontWeight:600, fontStyle:"italic", color:"rgba(255,255,255,1)", letterSpacing:"0.04em", display:"block", marginTop:2, textAlign:"center" }}>Skin Roadmap…</span></span>
+              : ANALYSIS_MESSAGES[msgIdx]}
+          </div>
+        </div>
       </div>
-      <div style={{ fontFamily:FF, fontSize:34, fontWeight:300, color:TX, letterSpacing:"0.06em", marginBottom:6 }}>Analysing</div>
-      <div style={{ fontFamily:FS, fontSize:13, color:MU, marginBottom:32, animation:"pulse 1.6s ease infinite" }}>Identifying skin conditions and concerns…</div>
+      <div style={{ fontFamily:FS, fontSize:12, color:MU, textAlign:"center",
+        marginBottom:20, letterSpacing:"0.04em", animation:"fadeIn 1.2s ease both" }}>
+        Analysis typically takes 30–60 seconds
+      </div>
       <div style={{ width:"100%", maxWidth:300 }}>
         {ANALYZING_ITEMS.map((item, i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${BR}`, opacity:step>i?1:0.2, transition:"opacity .5s ease" }}>
@@ -1610,8 +1794,9 @@ Include concentrations when found. List top 3–5 actives.`
   /* ── RESULTS (tabbed) ───────────────────────────────────────────── */
   const renderResults = (a, preview) => {
     if (!a) return null;
-    const { skinType, fitzpatrickType: analyzedFitz, overallAssessment, analysisConfidence, confidenceNote,
-            photoTips=[], concerns=[], recommendations=[] } = a;
+    const { skinType, fitzpatrickType: analyzedFitz, overallAssessment, analysisConfidence, confidenceNote, positives = [],
+            photoTips=[], concerns: rawConcerns=[], recommendations=[] } = a;
+    const concerns = [...rawConcerns].sort((a,b)=>(SEV_ORDER[b.severity]||0)-(SEV_ORDER[a.severity]||0));
     // Profile self-ID always wins over model detection
     const fitzpatrickType = profile?.fitzpatrickType || analyzedFitz;
     const fitz   = FITZ[fitzpatrickType] || FITZ["Type III"];
@@ -1637,8 +1822,23 @@ Include concentrations when found. List top 3–5 actives.`
     ];
 
     // ─ Summary ────────────────────────────────────────────────────
-    const summaryTab = () => (
+    const summaryTab = () => {
+      // Skin Health Score
+      const scoreDeductions = concerns.reduce((t,c) =>
+        t + (c.severity==="Significant"?18:c.severity==="Moderate"?10:4), 0);
+      const score      = Math.max(10, 100 - scoreDeductions);
+      const scoreColor = score >= 80 ? "#14532D" : score >= 60 ? "#7C2D12" : "#B91C1C";
+      const scoreLabel = score >= 85 ? "Excellent" : score >= 70 ? "Good" : score >= 55 ? "Fair" : score >= 40 ? "Needs Attention" : "Significant Concerns";
+
+      const hr = new Date().getHours();
+      const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
+
+      return (
       <div style={{ padding:"20px 0 24px" }}>
+        <div style={{ fontFamily:FF, fontSize:15, fontStyle:"italic", color:MU,
+          marginBottom:14, letterSpacing:"0.04em" }}>
+          {greeting}{profile?.name ? `, ${profile.name.trim().split(" ")[0]}` : ""}.
+        </div>
         <div style={{ display:"flex", gap:14, alignItems:"flex-start", marginBottom:20 }}>
           {preview && (
             <div style={{ width:88, flexShrink:0, borderRadius:10, overflow:"hidden", border:`1px solid ${BR}`, aspectRatio:"3/4" }}>
@@ -1647,9 +1847,51 @@ Include concentrations when found. List top 3–5 actives.`
           )}
           <div style={{ flex:1 }}>
             <div style={{ display:"flex", gap:7, marginBottom:10, flexWrap:"wrap" }}>
-              {pill(`${skinType} Skin`, true)}{pill(fitzpatrickType, false)}
+              {pill(`${skinType} Skin`, true)}
             </div>
-            <p style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.7 }}>{overallAssessment}</p>
+            <p style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.7, marginBottom:12 }}>{overallAssessment}</p>
+            <div style={{ display:"flex", alignItems:"center", gap:9 }}>
+              <div style={{ width:30, height:30, borderRadius:"50%", background:fitz.swatch, border:"1.5px solid rgba(255,255,255,.15)", boxShadow:"0 0 0 2px rgba(44,74,114,.18)", flexShrink:0 }} />
+              <div>
+                <div style={{ fontFamily:FS, fontSize:12, color:TX, lineHeight:1.3 }}>{fitz.label} <span style={{ color:MU }}>· {fitzpatrickType}</span></div>
+                <div style={{ fontFamily:FS, fontSize:10, color:MU, marginTop:2 }}>{fitz.sun}</div>
+              </div>
+            </div>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 9px", background:"rgba(44,74,114,.07)", border:"1px solid rgba(44,74,114,.18)", borderRadius:5, marginTop:9 }}>
+              <span style={{ fontSize:10 }}>☀</span>
+              <span style={{ fontFamily:FS, fontSize:10, color:G }}>{fitz.spf}</span>
+            </div>
+          </div>
+        </div>
+
+        {positives && positives.length > 0 && (
+          <div style={{ ...card({ padding:"14px 16px", marginBottom:12 }) }}>
+            <div style={{ fontFamily:FS, fontSize:11, fontWeight:600, letterSpacing:"0.12em", color:"#14532D", textTransform:"uppercase", marginBottom:10 }}>Skin Strengths</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
+              {positives.map((p, i) => (
+                <div key={i} style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+                  <div style={{ width:18, height:18, borderRadius:"50%", background:"rgba(21,128,61,.13)", border:"1px solid rgba(21,128,61,.35)", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, marginTop:1 }}>
+                    <span style={{ fontSize:10, color:"#14532D" }}>✓</span>
+                  </div>
+                  <span style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.5 }}>{p}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {/* SPF Reminder */}
+        <div style={{ ...card({ padding:"13px 16px", marginBottom:12,
+          background:"rgba(44,74,114,.05)", border:"1px solid rgba(44,74,114,.2)" }) }}>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <span style={{ fontSize:22, flexShrink:0 }}>☀</span>
+            <div>
+              <div style={{ fontFamily:FS, fontSize:10, fontWeight:600, letterSpacing:"0.12em", color:G, textTransform:"uppercase", marginBottom:3 }}>Daily SPF</div>
+              <div style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.45 }}>{fitz.spf}</div>
+              <div style={{ fontFamily:FS, fontSize:11, color:MU, marginTop:3 }}>{fitz.label} skin — {fitz.sun.toLowerCase()}</div>
+              <div style={{ fontFamily:FS, fontSize:10, color:DM, marginTop:4, fontStyle:"italic" }}>
+                Recommendation based on {profile?.fitzpatrickType ? "your self-identified" : "AI-identified"} {fitzpatrickType}
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1676,77 +1918,178 @@ Include concentrations when found. List top 3–5 actives.`
           </div>
         )}
 
-        <div style={{ ...card({ padding:"16px" }) }}>
-          {secLabel("Fitzpatrick Skin Type")}
-          <div style={{ display:"flex", gap:14, alignItems:"flex-start" }}>
-            <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:5, flexShrink:0 }}>
-              <div style={{ width:44, height:44, borderRadius:"50%", background:fitz.swatch, border:"2px solid rgba(255,255,255,.12)", boxShadow:"0 0 0 3px rgba(44,74,114,.15)" }} />
-              <span style={{ fontFamily:FS, fontSize:9, color:MU }}>{fitzpatrickType}</span>
-            </div>
-            <div style={{ flex:1 }}>
-              <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:5, flexWrap:"wrap" }}>
-                <span style={{ fontFamily:FF, fontSize:18, color:TX }}>{fitz.label}</span>
-                <span style={{ fontFamily:FS, fontSize:11, color:MU, fontStyle:"italic" }}>{fitz.sun}</span>
-              </div>
-              <p style={{ fontFamily:FS, fontSize:12, color:MU, lineHeight:1.7, marginBottom:8 }}>{fitz.info}</p>
-              <div style={{ display:"inline-flex", alignItems:"center", gap:7, padding:"5px 10px", background:"rgba(44,74,114,.08)", border:"1px solid rgba(44,74,114,.2)", borderRadius:6 }}>
-                <span style={{ fontSize:12 }}>☀</span>
-                <span style={{ fontFamily:FS, fontSize:11, color:G }}>{fitz.spf}</span>
+        {/* Skin Metrics — Score + Age grouped */}
+        <div style={{ ...card({ padding:"16px", marginBottom:0, borderRadius:"12px 12px 0 0" }) }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <div>
+              {secLabel("Skin Metrics")}
+              <div style={{ display:"flex", alignItems:"baseline", gap:10, marginTop:6 }}>
+                <span style={{ fontFamily:FF, fontSize:52, color:scoreColor, lineHeight:1, fontWeight:300 }}>{score}</span>
+                <span style={{ fontFamily:FS, fontSize:11, color:scoreColor, fontWeight:600, letterSpacing:"0.08em" }}>{scoreLabel}</span>
+                  <div style={{ fontFamily:FS, fontSize:9, color:DM, letterSpacing:"0.1em", textTransform:"uppercase", marginTop:3 }}>Health Score</div>
               </div>
             </div>
+            <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:5 }}>
+              {["Significant","Moderate","Mild"].map(s => {
+                const n = concerns.filter(c=>c.severity===s).length;
+                if (!n) return null;
+                const sv = SEV[s];
+                return (
+                  <div key={s} onClick={() => setActiveTab("concerns")}
+                    className="hcard"
+                    style={{ display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"2px 4px", borderRadius:6, transition:"background .15s" }}>
+                    <span style={{ fontFamily:FS, fontSize:11, color:sv.tx, fontWeight:500 }}>{n}</span>
+                    <span style={{ fontFamily:FS, fontSize:10, padding:"2px 7px", background:sv.bg, border:`1px solid ${sv.br}`, borderRadius:4, color:sv.tx }}>
+                      {s} →
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+          <div style={{ marginTop:10, height:4, borderRadius:2, background:"rgba(44,74,114,.1)" }}>
+            <div style={{ height:4, borderRadius:2, background:scoreColor, width:`${score}%`, transition:"width .6s ease", opacity:.75 }} />
           </div>
         </div>
 
         {/* Skin Age */}
         {a.skinAge && (() => {
-          const actual  = profile?.age ? parseInt(profile.age) : null;
-          const est     = a.skinAge;
-          const diff    = actual ? actual - est : null;    // positive = skin looks younger
-          const diffAbs = diff !== null ? Math.abs(diff) : null;
-          const color   = diff === null ? G
-                        : diff >= 4  ? "#14532D"
-                        : diff <= -4 ? "#B91C1C"
-                        : "#FCD34D";
-          const label   = diff === null ? null
-                        : diff >= 4  ? `${diffAbs} yrs younger`
-                        : diff <= -4 ? `${diffAbs} yrs older`
-                        : "On track";
-          const insight = diff === null ? null
-                        : diff >= 4  ? "Your skin looks younger than your age — excellent skin health."
-                        : diff <= -4 ? "Signs of accelerated ageing visible — targeted treatment can help."
-                        : "Skin age closely matches your chronological age.";
+          const actual   = profile?.age ? parseInt(profile.age) : null;
+          const est      = a.skinAge;
+          const diff     = actual ? actual - est : null;
+          const diffAbs  = diff !== null ? Math.abs(diff) : null;
+          const color    = diff === null ? G
+                         : diff >= 4  ? "#14532D"
+                         : diff <= -4 ? "#B91C1C"
+                         : "#7C2D12";
+          const label    = diff === null ? null
+                         : diff >= 4  ? `${diffAbs} yrs younger`
+                         : diff <= -4 ? `${diffAbs} yrs older`
+                         : diff === 0 ? "Exact match" : "On track";
+
+          // Typical delta (est - actual) range by Fitzpatrick type
+          const TYPICAL = {
+            "Type I":   { low:-2, high:6  }, "Type II":  { low:-2, high:5  },
+            "Type III": { low:-3, high:3  }, "Type IV":  { low:-4, high:2  },
+            "Type V":   { low:-5, high:1  }, "Type VI":  { low:-5, high:0  },
+          };
+          const typ      = TYPICAL[fitzpatrickType] || { low:-3, high:3 };
+          const estDelta = actual ? est - actual : null;
+          const inRange  = estDelta !== null && estDelta >= typ.low && estDelta <= typ.high;
+
+          // Timeline bounds
+          const ages  = actual ? [est, actual] : [est];
+          const tlMin = Math.max(15, Math.min(...ages) - 10);
+          const tlMax = Math.min(80, Math.max(...ages) + 10);
+          const tlRng = tlMax - tlMin;
+          const PAD   = 4;
+          const TW    = 100 - PAD * 2;
+          const pos   = v => `${(PAD + Math.max(0, Math.min(1, (v - tlMin) / tlRng)) * TW).toFixed(1)}%`;
+          const segW  = (a, b) => `${(Math.abs(b - a) / tlRng * TW).toFixed(1)}%`;
+          const typLo = actual ? Math.max(tlMin, actual + typ.low)  : null;
+          const typHi = actual ? Math.min(tlMax, actual + typ.high) : null;
+
           return (
-            <div style={{ ...card({ padding:"16px", marginTop:16 }) }}>
+<div style={{ ...card({ padding:"16px", marginTop:0, borderRadius:"0 0 12px 12px", borderTop:"none" }) }}>
               {secLabel("Skin Age")}
-              <div style={{ display:"flex", alignItems:"center", gap:0 }}>
+
+              {/* Numbers + delta badge */}
+              <div style={{ display:"flex", alignItems:"center", marginBottom:24 }}>
                 <div style={{ flex:1, textAlign:"center" }}>
-                  <div style={{ fontFamily:FF, fontSize:52, color:color, lineHeight:1, fontWeight:300 }}>{est}</div>
-                  <div style={{ fontFamily:FS, fontSize:10, color:MU, marginTop:4, letterSpacing:"0.08em" }}>Estimated</div>
+                  <div style={{ fontFamily:FF, fontSize:52, color, lineHeight:1, fontWeight:300 }}>{est}</div>
+                  <div style={{ fontFamily:FS, fontSize:10, color:MU, marginTop:3, letterSpacing:"0.08em" }}>Estimated</div>
+                </div>
+                {actual && label && (
+                  <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, padding:"0 8px" }}>
+                    <div style={{ width:1, height:18, background:BR }} />
+                    <div style={{ padding:"3px 11px", borderRadius:12, background:`${color}18`, border:`1px solid ${color}44` }}>
+                      <span style={{ fontFamily:FS, fontSize:11, color, fontWeight:600 }}>{label}</span>
+                    </div>
+                    <div style={{ width:1, height:18, background:BR }} />
+                  </div>
+                )}
+                {actual && (
+                  <div style={{ flex:1, textAlign:"center" }}>
+                    <div style={{ fontFamily:FF, fontSize:52, color:TX, lineHeight:1, fontWeight:300 }}>{actual}</div>
+                    <div style={{ fontFamily:FS, fontSize:10, color:MU, marginTop:3, letterSpacing:"0.08em" }}>Actual</div>
+                  </div>
+                )}
+              </div>
+
+              {/* Timeline track */}
+              <div style={{ position:"relative", height:84, marginBottom:8 }}>
+                {/* Base track */}
+                <div style={{ position:"absolute", top:16, left:`${PAD}%`, right:`${PAD}%`, height:4, background:"rgba(44,74,114,.1)", borderRadius:2 }} />
+                {/* Typical band on track */}
+                {actual && typLo !== null && typHi !== null && (
+                  <div style={{ position:"absolute", top:12, height:12, borderRadius:4,
+                    left:pos(typLo), width:segW(typLo, typHi),
+                    background:"rgba(44,74,114,.1)", border:"1px solid rgba(44,74,114,.22)" }} />
+                )}
+                {/* Colored segment est ↔ actual */}
+                {actual && diffAbs > 0 && (
+                  <div style={{ position:"absolute", top:16, height:4, borderRadius:2, opacity:0.75,
+                    left:pos(Math.min(est,actual)), width:segW(Math.min(est,actual), Math.max(est,actual)),
+                    background:color }} />
+                )}
+                {/* Estimated dot */}
+                <div style={{ position:"absolute", top:8, left:pos(est), transform:"translateX(-50%)",
+                  width:16, height:16, borderRadius:"50%", background:color,
+                  border:"2.5px solid white", boxShadow:"0 1px 4px rgba(0,0,0,.22)" }} />
+                {/* Actual dot */}
+                {actual && (
+                  <div style={{ position:"absolute", top:8, left:pos(actual), transform:"translateX(-50%)",
+                    width:16, height:16, borderRadius:"50%", background:TX,
+                    border:"2.5px solid white", boxShadow:"0 1px 4px rgba(0,0,0,.22)" }} />
+                )}
+                {/* Dot value labels */}
+                <div style={{ position:"absolute", top:28, left:pos(est), transform:"translateX(-50%)" }}>
+                  <span style={{ fontFamily:FS, fontSize:9, color, fontWeight:500 }}>{est}</span>
                 </div>
                 {actual && (
+                  <div style={{ position:"absolute", top:28, left:pos(actual), transform:"translateX(-50%)" }}>
+                    <span style={{ fontFamily:FS, fontSize:9, color:MU }}>{actual}</span>
+                  </div>
+                )}
+
+                {/* Typical range bracket — sits below dots, arms drop from track */}
+                {actual && typLo !== null && typHi !== null && (
                   <>
-                    <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, padding:"0 12px" }}>
-                      <div style={{ width:1, height:24, background:BR }} />
-                      {label && (
-                        <div style={{ padding:"3px 10px", borderRadius:12, background:`${color}18`, border:`1px solid ${color}44` }}>
-                          <span style={{ fontFamily:FS, fontSize:10, color, fontWeight:500 }}>{label}</span>
-                        </div>
-                      )}
-                      <div style={{ width:1, height:24, background:BR }} />
+                    {/* Left arm */}
+                    <div style={{ position:"absolute", top:39, left:pos(typLo), transform:"translateX(-50%)",
+                      width:1.5, height:16, background:"rgba(44,74,114,.45)" }} />
+                    {/* Right arm */}
+                    <div style={{ position:"absolute", top:39, left:pos(typHi), transform:"translateX(-50%)",
+                      width:1.5, height:16, background:"rgba(44,74,114,.45)" }} />
+                    {/* Horizontal bracket line */}
+                    <div style={{ position:"absolute", top:54, height:1.5, borderRadius:1,
+                      left:pos(typLo), width:segW(typLo, typHi),
+                      background:"rgba(44,74,114,.45)" }} />
+                    {/* Left bracket end value */}
+                    <div style={{ position:"absolute", top:57, left:pos(typLo), transform:"translateX(-50%)", textAlign:"center" }}>
+                      <span style={{ fontFamily:FS, fontSize:10, color:TX, fontWeight:500 }}>{typLo}</span>
                     </div>
-                    <div style={{ flex:1, textAlign:"center" }}>
-                      <div style={{ fontFamily:FF, fontSize:52, color:TX, lineHeight:1, fontWeight:300 }}>{actual}</div>
-                      <div style={{ fontFamily:FS, fontSize:10, color:MU, marginTop:4, letterSpacing:"0.08em" }}>Actual</div>
+                    {/* Right bracket end value */}
+                    <div style={{ position:"absolute", top:57, left:pos(typHi), transform:"translateX(-50%)", textAlign:"center" }}>
+                      <span style={{ fontFamily:FS, fontSize:10, color:TX, fontWeight:500 }}>{typHi}</span>
+                    </div>
+                    {/* Center bracket label */}
+                    <div style={{ position:"absolute", top:68, left:pos((typLo+typHi)/2), transform:"translateX(-50%)", textAlign:"center", whiteSpace:"nowrap" }}>
+                      <div style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 9px", borderRadius:10,
+                        background: inRange ? "rgba(21,128,61,.12)" : estDelta > typ.high ? "rgba(185,28,28,.1)" : "rgba(21,128,61,.12)",
+                        border: `1px solid ${inRange ? "rgba(21,128,61,.3)" : estDelta > typ.high ? "rgba(185,28,28,.3)" : "rgba(21,128,61,.3)"}` }}>
+                        <span style={{ fontFamily:FS, fontSize:10, fontWeight:600, letterSpacing:"0.06em",
+                          color: inRange ? "#14532D" : estDelta > typ.high ? "#B91C1C" : "#14532D" }}>
+                          {fitzpatrickType} typical{inRange ? " ✓" : estDelta > typ.high ? " ↑" : " ↓"}
+                        </span>
+                      </div>
                     </div>
                   </>
                 )}
               </div>
-              {insight && (
-                <div style={{ fontFamily:FS, fontSize:12, color:MU, marginTop:12, lineHeight:1.6, textAlign:"center" }}>{insight}</div>
-              )}
               {!actual && (
                 <div style={{ fontFamily:FS, fontSize:11, color:DM, marginTop:10, textAlign:"center" }}>
-                  Add your age in your profile to see how your skin compares.
+                  Add your age in your profile to compare against your skin type's typical range.
                 </div>
               )}
             </div>
@@ -1754,6 +2097,8 @@ Include concentrations when found. List top 3–5 actives.`
         })()}
       </div>
     );
+
+    };
 
     // ─ Concerns ───────────────────────────────────────────────────
     const concernsTab = () => (
@@ -1771,6 +2116,29 @@ Include concentrations when found. List top 3–5 actives.`
                   <img src={preview} alt="Ref" style={{ width:"100%", height:"100%", objectFit:"cover", objectPosition:"center top", display:"block" }}/>
                 </div>
               )}
+            </div>
+
+            {(() => {
+              const sc = concerns.reduce((a,c)=>{ a[c.severity]=(a[c.severity]||0)+1; return a; },{});
+              const parts = ["Significant","Moderate","Mild"].filter(s=>sc[s])
+                .map(s=><span key={s} style={{ fontFamily:FS, fontSize:12, color:SEV[s].tx }}>
+                  <span style={{ fontWeight:600 }}>{sc[s]}</span> {s}
+                </span>);
+              return parts.length > 0 ? (
+                <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:12, paddingBottom:12, borderBottom:`1px solid ${BR}`, flexWrap:"wrap" }}>
+                  <span style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:DM, textTransform:"uppercase", marginRight:4 }}>Concerns</span>
+                  {parts.reduce((a,e,i)=>[...a, i>0 && <span key={i} style={{ color:DM, fontSize:10 }}>·</span>, e],[])}
+                </div>
+              ) : null;
+            })()}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"flex-end", gap:10, marginBottom:10, flexWrap:"wrap" }}>
+              <span style={{ fontFamily:FS, fontSize:9, color:DM, letterSpacing:"0.12em", textTransform:"uppercase", marginRight:2 }}>AI Detection Confidence</span>
+              {[["High","#14532D"],["Medium","#7C2D12"],["Low","#B91C1C"]].map(([lbl,col]) => (
+                <div key={lbl} style={{ display:"flex", alignItems:"center", gap:4 }}>
+                  <ConfidenceBars level={lbl} />
+                  <span style={{ fontFamily:FS, fontSize:9, color:col }}>{lbl}</span>
+                </div>
+              ))}
             </div>
 
             <div style={{ display:"flex", flexDirection:"column", gap:9, marginBottom:12 }}>
@@ -1809,42 +2177,70 @@ Include concentrations when found. List top 3–5 actives.`
     );
 
     // ─ Treatments ─────────────────────────────────────────────────
-    const RecCard = ({ rec, color, alpha, icon, label }) => (
-      <div className="rcard" style={{ ...card({ padding:0, overflow:"hidden" }) }}>
-        <div style={{ padding:"10px 16px", background:`rgba(${alpha},.08)`, borderBottom:`1px solid rgba(${alpha},.18)`, display:"flex", alignItems:"center", gap:9 }}>
-          <span style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.13em", color, textTransform:"uppercase", fontWeight:500 }}>{icon} {label}</span>
+    const RecCard = ({ rec, color, alpha, icon, label }) => {
+      // Downtime semantic colours
+      const dt = rec.downtime || "None";
+      const dtS = dt === "None" || dt === ""
+        ? { tx:"#14532D", bg:"rgba(21,128,61,.1)",  br:"rgba(21,128,61,.3)",  icon:"✓" }
+        : dt.includes("1-2 d")
+        ? { tx:"#7C2D12", bg:"rgba(146,64,14,.1)", br:"rgba(146,64,14,.3)", icon:"◷" }
+        : dt.includes("3-5")
+        ? { tx:"#C2410C", bg:"rgba(194,65,12,.1)", br:"rgba(194,65,12,.3)", icon:"◷" }
+        : { tx:"#B91C1C", bg:"rgba(185,28,28,.1)", br:"rgba(185,28,28,.3)", icon:"◷" };
+      const dtLabel = dt === "None" || dt === "" ? "No downtime" : dt + " recovery";
 
-          {(rec.price || rec.priceRange) && (
-            <span style={{ marginLeft:"auto", fontFamily:FS, fontSize:11, color, padding:"2px 8px", background:`rgba(${alpha},.1)`, border:`1px solid rgba(${alpha},.25)`, borderRadius:4 }}>
-              {rec.price || rec.priceRange}
-            </span>
-          )}
-        </div>
-        <div style={{ padding:"13px 16px" }}>
-          <div style={{ fontFamily:FF, fontSize:20, color:TX, marginBottom:4 }}>{rec.procedure}</div>
-          <div style={{ fontFamily:FS, fontSize:11, color, marginBottom:7 }}>{rec.category}</div>
-          <div style={{ fontFamily:FS, fontSize:13, color:MU, lineHeight:1.65, marginBottom:9 }}>{rec.description}</div>
-          <div style={{ fontFamily:FS, fontSize:12, color:TX, lineHeight:1.6, padding:"8px 12px", background:`rgba(${alpha},.05)`, border:`1px solid rgba(${alpha},.14)`, borderRadius:7 }}>
-            <span style={{ color }}>Why it helps: </span>{rec.howItHelps}
+      return (
+        <div className="rcard" style={{ ...card({ padding:0, overflow:"hidden" }) }}>
+          {/* Header */}
+          <div style={{ padding:"10px 16px", background:`rgba(${alpha},.08)`, borderBottom:`1px solid rgba(${alpha},.18)`, display:"flex", alignItems:"center", gap:9 }}>
+            <span style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.13em", color, textTransform:"uppercase", fontWeight:500 }}>{icon} {label}</span>
           </div>
-          <div style={{ marginTop:9, display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-            <span style={{ fontFamily:FS, fontSize:10, padding:"2px 8px", background:"rgba(255,255,255,.05)", border:`1px solid ${BR}`, borderRadius:4, color:MU }}>
-              {(!rec.downtime || rec.downtime === "None") ? "No downtime" : rec.downtime + " downtime"}
-            </span>
+
+          <div style={{ padding:"13px 16px" }}>
+            {/* Procedure + price row */}
+            <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10, marginBottom:4 }}>
+              <div style={{ fontFamily:FF, fontSize:20, color:TX, flex:1, lineHeight:1.2 }}>{rec.procedure}</div>
+              {(rec.price || rec.priceRange) && (
+                <div style={{ flexShrink:0, textAlign:"right" }}>
+                  <div style={{ fontFamily:FF, fontSize:18, fontStyle:"italic", color, lineHeight:1, fontWeight:400 }}>
+                    {rec.price || rec.priceRange}
+                  </div>
+                  {rec.tier === "premium" && !(rec.price||"").toLowerCase().includes("session") && (
+                    <div style={{ fontFamily:FS, fontSize:9, color:MU, marginTop:2, letterSpacing:"0.06em" }}>per session</div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div style={{ fontFamily:FS, fontSize:11, color, marginBottom:8 }}>{rec.category}</div>
+            <div style={{ fontFamily:FS, fontSize:13, color:MU, lineHeight:1.65, marginBottom:9 }}>{rec.description}</div>
+            <div style={{ fontFamily:FS, fontSize:12, color:TX, lineHeight:1.6, padding:"8px 12px", background:`rgba(${alpha},.05)`, border:`1px solid rgba(${alpha},.14)`, borderRadius:7, marginBottom:10 }}>
+              <span style={{ color }}>Why it helps: </span>{rec.howItHelps}
+            </div>
+
+            {/* Downtime badge — semantic colour + prominent */}
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              <div style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"4px 11px",
+                background:dtS.bg, border:`1px solid ${dtS.br}`, borderRadius:12 }}>
+                <span style={{ fontSize:11, color:dtS.tx }}>{dtS.icon}</span>
+                <span style={{ fontFamily:FS, fontSize:11, fontWeight:500, color:dtS.tx }}>{dtLabel}</span>
+              </div>
+            </div>
+
+            {rec.tier === "premium" && (
+              <a href={`https://www.google.com/maps/search/${encodeURIComponent((rec.procedure||"") + " near me")}`}
+                target="_blank" rel="noopener noreferrer"
+                style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginTop:12, padding:"11px 14px",
+                  borderRadius:9, background:`rgba(${alpha},.12)`, border:`1px solid rgba(${alpha},.35)`, textDecoration:"none" }}>
+                <span style={{ fontFamily:FS, fontSize:12, fontWeight:600, letterSpacing:"0.06em", color }}>
+                  Find providers near me →
+                </span>
+              </a>
+            )}
           </div>
-          {rec.tier === "premium" && (
-            <a href={`https://www.google.com/maps/search/${encodeURIComponent((rec.procedure||"") + " near me")}`}
-              target="_blank" rel="noopener noreferrer"
-              style={{ display:"flex", alignItems:"center", justifyContent:"center", gap:8, marginTop:12, padding:"11px 14px",
-                borderRadius:9, background:`rgba(${alpha},.12)`, border:`1px solid rgba(${alpha},.35)`, textDecoration:"none" }}>
-              <span style={{ fontFamily:FS, fontSize:12, fontWeight:600, letterSpacing:"0.06em", color }}>
-                Find providers near me →
-              </span>
-            </a>
-          )}
         </div>
-      </div>
-    );
+      );
+    };
 
     const treatmentsTab = () => {
       // Group recs by concern — one budget + one premium per concern
@@ -1871,12 +2267,14 @@ Include concentrations when found. List top 3–5 actives.`
               <div style={{ fontFamily:FS, fontSize:11, color:DM, marginBottom:8, textAlign:"center" }}>Showing treatments for all concerns — tap to filter</div>
               <div style={{ display:"flex", flexWrap:"wrap", gap:7, justifyContent:"center" }}>
                 {concerns.map(c => {
-                  const sv = SEV[c.severity]||SEV.Mild;
+                  const sv  = SEV[c.severity]||SEV.Mild;
+                  const cnt = recommendations.filter(r=>(r.targetConcernIds||[]).includes(c.id)).length;
                   return (
                     <button key={c.id} onClick={() => { setSelectedConcernId(c.id); }}
                       style={{ padding:"5px 12px", borderRadius:16, border:`1px solid ${sv.br}`, background:sv.bg,
-                        fontFamily:FS, fontSize:11, color:sv.tx, cursor:"pointer" }}>
+                        fontFamily:FS, fontSize:11, color:sv.tx, cursor:"pointer", display:"flex", alignItems:"center", gap:5 }}>
                       {c.name}
+                      {cnt > 0 && <span style={{ fontFamily:FS, fontSize:10, color:sv.tx, opacity:.7 }}>({cnt})</span>}
                     </button>
                   );
                 })}
@@ -2007,23 +2405,52 @@ Include concentrations when found. List top 3–5 actives.`
                             <span style={{ fontFamily:FS, fontSize:11, color:G }}>{fmtDate(entry.date)}</span>
                             {isCur && <span style={{ fontFamily:FS, fontSize:9, padding:"1px 6px", background:"rgba(21,128,61,.08)", border:"1px solid rgba(21,128,61,.22)", borderRadius:4, color:"#14532D" }}>Current</span>}
                           </div>
-                          <div style={{ fontFamily:FF, fontSize:15, color:TX, marginBottom:4 }}>{entry.skinType}</div>
+                          <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:4 }}>
+                            <span style={{ fontFamily:FF, fontSize:15, color:TX }}>{entry.skinType}</span>
+                            {(() => {
+                              const sc = (entry.concerns||[]).reduce((t,c)=>t+(c.severity==="Significant"?18:c.severity==="Moderate"?10:4),0);
+                              const s  = Math.max(10, 100-sc);
+                              const cl = s>=80?"#14532D":s>=60?"#7C2D12":"#B91C1C";
+                              return <span style={{ fontFamily:FS, fontSize:10, color:cl, fontWeight:600 }}>{s}</span>;
+                            })()}
+                          </div>
+                          {entry.overallAssessment && (
+                            <div style={{ fontFamily:FS, fontSize:11, color:MU, lineHeight:1.5, marginBottom:5 }}>{entry.overallAssessment}</div>
+                          )}
                           <div style={{ display:"flex", gap:5, flexWrap:"wrap" }}>
                             {(entry.concerns||[]).slice(0,3).map((c,i) => {
                               const sv = SEV[c.severity]||SEV.Mild;
-                              return <span key={i} style={{ fontFamily:FS, fontSize:9, padding:"1px 6px", background:sv.bg, border:`1px solid ${sv.br}`, borderRadius:4, color:sv.tx }}>{c.name}</span>;
+                              return <span key={i} style={{ fontFamily:FS, fontSize:10, padding:"2px 7px", background:sv.bg, border:`1px solid ${sv.br}`, borderRadius:4, color:sv.tx }}>{c.name}</span>;
                             })}
                             {(entry.concerns||[]).length > 3 && <span style={{ fontFamily:FS, fontSize:10, color:DM }}>+{entry.concerns.length-3} more</span>}
                           </div>
                         </div>
-                        <div style={{ display:"flex", flexDirection:"column", gap:5, flexShrink:0 }}>
-                          <button className="lbtn" onClick={() => { setAnalysis(entry); setAngles({ front:{ preview:entry.thumb, b64:entry.thumb.split(",")[1] }, left:null, right:null }); setFromHistory(true); setActiveTab("summary"); }}
-                            style={{ padding:"5px 10px", borderRadius:6, background:"transparent", border:`1px solid ${BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:MU, textTransform:"uppercase", cursor:"pointer" }}>View</button>
-                          <button className="lbtn" onClick={() => toggle(entry.id)}
-                            style={{ padding:"5px 10px", borderRadius:6, background:isSel?"rgba(44,74,114,.15)":"transparent", border:`1px solid ${isSel?G:BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:isSel?G:MU, textTransform:"uppercase", cursor:"pointer" }}>
-                            {isSel ? "✓ Sel" : "Select"}
-                          </button>
-                        </div>
+                        {deletingId === entry.id ? (
+                          <div style={{ display:"flex", flexDirection:"column", gap:5, flexShrink:0, alignItems:"flex-end" }}>
+                            <span style={{ fontFamily:FS, fontSize:10, color:MU, marginBottom:2 }}>Delete scan?</span>
+                            <button className="lbtn" onClick={() => deleteFromHistory(entry.id)}
+                              style={{ padding:"5px 10px", borderRadius:6, background:"rgba(185,28,28,.1)", border:"1px solid rgba(185,28,28,.35)", fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:"#B91C1C", textTransform:"uppercase", cursor:"pointer" }}>
+                              Delete
+                            </button>
+                            <button className="lbtn" onClick={() => setDeletingId(null)}
+                              style={{ padding:"5px 10px", borderRadius:6, background:"transparent", border:`1px solid ${BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:MU, textTransform:"uppercase", cursor:"pointer" }}>
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div style={{ display:"flex", flexDirection:"column", gap:5, flexShrink:0 }}>
+                            <button className="lbtn" onClick={() => { setAnalysis(entry); setAngles({ front:{ preview:entry.thumb, b64:entry.thumb.split(",")[1] }, left:null, right:null }); setFromHistory(true); setActiveTab("summary"); }}
+                              style={{ padding:"5px 10px", borderRadius:6, background:"transparent", border:`1px solid ${BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:MU, textTransform:"uppercase", cursor:"pointer" }}>View</button>
+                            <button className="lbtn" onClick={() => toggle(entry.id)}
+                              style={{ padding:"5px 10px", borderRadius:6, background:isSel?"rgba(44,74,114,.15)":"transparent", border:`1px solid ${isSel?G:BR}`, fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:isSel?G:MU, textTransform:"uppercase", cursor:"pointer" }}>
+                              {isSel ? "✓ Sel" : "Select"}
+                            </button>
+                            <button className="lbtn" onClick={() => setDeletingId(entry.id)}
+                              style={{ padding:"5px 10px", borderRadius:6, background:"transparent", border:"1px solid rgba(185,28,28,.25)", fontFamily:FS, fontSize:10, letterSpacing:"0.06em", color:"#B91C1C", textTransform:"uppercase", cursor:"pointer" }}>
+                              Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -2045,17 +2472,23 @@ Include concentrations when found. List top 3–5 actives.`
       <div style={{ position:"sticky", bottom:0, display:"flex", background:BG, borderTop:`1px solid ${BR}`, zIndex:20, marginLeft:-22, marginRight:-22 }}>
         {TABS.map(tab => {
           const isActive = activeTab === tab.key;
-          const badge    = tab.key === "progress" && history.length > 0 && !isActive ? history.length : 0;
+          const sevWorst  = concerns.some(c=>c.severity==="Significant") ? "Significant"
+                          : concerns.some(c=>c.severity==="Moderate") ? "Moderate"
+                          : concerns.length ? "Mild" : null;
+          const badgeColor= sevWorst==="Significant"?"#B91C1C":sevWorst==="Moderate"?"#7C2D12":sevWorst==="Mild"?"#A16207":G;
+          const badge     = tab.key === "progress" && history.length > 0 && !isActive ? history.length
+                          : tab.key === "concerns"  && concerns.length  > 0 && !isActive ? concerns.length
+                          : 0;
           return (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              style={{ flex:1, padding:"10px 4px 14px", display:"flex", flexDirection:"column", alignItems:"center", gap:3,
+              style={{ flex:1, padding:"10px 4px 12px", display:"flex", flexDirection:"row", alignItems:"center", justifyContent:"center", gap:5,
                 background:"none", border:"none", cursor:"pointer", position:"relative",
                 borderTop: isActive ? `2px solid ${G}` : "2px solid transparent", transition:"border-color .15s" }}>
-              <span style={{ fontSize:18, color: isActive ? G : DM, lineHeight:1, transition:"color .15s" }}>{tab.icon}</span>
+              <span style={{ fontSize:15, color: isActive ? G : DM, lineHeight:1, transition:"color .15s" }}>{tab.icon}</span>
               <span style={{ fontFamily:FS, fontSize:9, letterSpacing:"0.1em", color: isActive ? G : MU, textTransform:"uppercase", transition:"color .15s" }}>{tab.label}</span>
               {badge > 0 && (
-                <div style={{ position:"absolute", top:7, left:"calc(50% + 6px)", minWidth:14, height:14, borderRadius:7, background:G, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px" }}>
-                  <span style={{ fontFamily:FS, fontSize:8, fontWeight:700, color:"#0B0A0D" }}>{badge > 9 ? "9+" : badge}</span>
+                <div style={{ position:"absolute", top:7, left:"calc(50% + 6px)", minWidth:14, height:14, borderRadius:7, background: tab.key==="concerns" ? badgeColor : G, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px" }}>
+                  <span style={{ fontFamily:FS, fontSize:8, fontWeight:700, color:"#F7F4F0" }}>{badge > 9 ? "9+" : badge}</span>
                 </div>
               )}
             </button>
@@ -2252,6 +2685,9 @@ Include concentrations when found. List top 3–5 actives.`
         @keyframes up{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
         @keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
         @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes dot{0%,60%,100%{opacity:.2}30%{opacity:1}}
+        @keyframes irisOrbit{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+        @keyframes irisPulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.06)}}
         @keyframes fadeIn{from{opacity:0}to{opacity:1}}
         .up0{animation:up .5s ease both}.up1{animation:up .5s .1s ease both}.up2{animation:up .5s .2s ease both}
         .lbtn{transition:filter .18s,transform .18s;cursor:pointer}
@@ -2265,34 +2701,42 @@ Include concentrations when found. List top 3–5 actives.`
       `}</style>
       <div style={{ background:BG, minHeight:"100vh", color:TX, fontFamily:FS }}>
       {phase !== "welcome" && (
-      <div style={{ borderBottom:`1px solid ${BR}`, padding:"18px 24px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-        <div style={{ cursor:"pointer", display:"flex", alignItems:"center", gap:10 }} onClick={reset}>
-          <svg width="32" height="32" viewBox="0 0 60 60" style={{ flexShrink:0 }}>
-            <circle cx="30" cy="30" r="22" fill="none" stroke={G} strokeWidth="0.75" opacity="0.38"/>
-            <circle cx="30" cy="30" r="14" fill="none" stroke={G} strokeWidth="1.75"/>
-            <circle cx="30" cy="30" r="7"  fill="none" stroke={G} strokeWidth="1.25"/>
-            <circle cx="30" cy="30" r="2.5" fill={G}/>
-            <line x1="30" y1="6"  x2="30" y2="0"  stroke={G} strokeWidth="1.25" strokeLinecap="round"/>
-            <line x1="54" y1="30" x2="60" y2="30" stroke={G} strokeWidth="1.25" strokeLinecap="round"/>
-            <line x1="30" y1="54" x2="30" y2="60" stroke={G} strokeWidth="1.25" strokeLinecap="round"/>
-            <line x1="6"  y1="30" x2="0"  y2="30" stroke={G} strokeWidth="1.25" strokeLinecap="round"/>
-          </svg>
+      <div style={{ background:"#1A2B4A", padding:"16px 22px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div style={{ cursor:"pointer", display:"flex", alignItems:"center", gap:0 }} onClick={reset}>
           <div>
-            <div style={{ fontFamily:FF, fontSize:24, fontWeight:400, letterSpacing:"0.16em", color:TX, lineHeight:1, fontStyle:"italic" }}>GlowIQ</div>
-            <div style={{ fontFamily:FS, fontSize:9, letterSpacing:"0.18em", color:DM, marginTop:3, textTransform:"uppercase" }}>Skin Roadmap</div>
+            <div style={{ display:"flex", alignItems:"center", lineHeight:1, gap:0, marginBottom:4 }}>
+              <span style={{ fontFamily:FF, fontSize:26, fontWeight:500, letterSpacing:"0.14em", color:"white", fontStyle:"italic" }}>Gl</span>
+              <svg width="30" height="33" viewBox="0 0 60 66" style={{ display:"block", margin:"0 2px", flexShrink:0, verticalAlign:"middle" }}>
+                <circle cx="30" cy="33" r="22" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="2"/>
+                <circle cx="30" cy="33" r="14" fill="none" stroke="rgba(255,255,255,.92)" strokeWidth="5"/>
+                <circle cx="30" cy="33" r="7"  fill="none" stroke="rgba(255,255,255,.58)" strokeWidth="3.5"/>
+                <circle cx="30" cy="33" r="3.5" fill="white"/>
+                <line x1="30" y1="11" x2="30" y2="4"  stroke="white" strokeWidth="3.5" strokeLinecap="round"/>
+                <line x1="52" y1="33" x2="59" y2="33" stroke="white" strokeWidth="3.5" strokeLinecap="round"/>
+                <line x1="30" y1="55" x2="30" y2="62" stroke="white" strokeWidth="3.5" strokeLinecap="round"/>
+                <line x1="8"  y1="33" x2="1"  y2="33" stroke="white" strokeWidth="3.5" strokeLinecap="round"/>
+              </svg>
+              <span style={{ fontFamily:FF, fontSize:26, fontWeight:500, letterSpacing:"0.14em", color:"white", fontStyle:"italic" }}>wIQ</span>
+            </div>
+            <div style={{ fontFamily:FS, fontSize:11, letterSpacing:"0.22em", color:"rgba(255,255,255,.78)", textTransform:"uppercase", textAlign:"right" }}>Skin Roadmap</div>
           </div>
         </div>
-        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           {saved && <span style={{ fontFamily:FS, fontSize:11, color:"#4ADE80", animation:"fadeIn .3s ease" }}>✓ Saved</span>}
-          {phase === "analyzing" && <div style={{ width:18, height:18, borderRadius:"50%", border:`2px solid ${G}`, borderTopColor:"transparent", animation:"spin .8s linear infinite" }} />}
+          {phase === "analyzing" && <div style={{ width:18, height:18, borderRadius:"50%", border:"2px solid rgba(255,255,255,.5)", borderTopColor:"transparent", animation:"spin .8s linear infinite" }} />}
           {phase === "results" && (
             <button className="lbtn" onClick={reset}
-              style={{ padding:"6px 13px", borderRadius:8, background:"transparent", border:`1px solid ${BR}`, fontFamily:FS, fontSize:11, letterSpacing:"0.09em", color:MU, textTransform:"uppercase", cursor:"pointer" }}>
+              style={{ padding:"6px 13px", borderRadius:8, background:"transparent", border:"1px solid rgba(255,255,255,.3)", fontFamily:FS, fontSize:11, letterSpacing:"0.09em", color:"rgba(255,255,255,.8)", textTransform:"uppercase", cursor:"pointer" }}>
               + New
             </button>
           )}
-          <button className="lbtn" onClick={() => { setProfileStep(0); const inProfile = phase === "onboarding" || phase === "profile"; setPhase(inProfile ? "upload" : "profile"); }}
-            style={{ padding:"6px 13px", borderRadius:8, background:(phase==="onboarding"||phase==="profile")?"rgba(44,74,114,.15)":"transparent", border:`1px solid ${(phase==="onboarding"||phase==="profile")?G:BR}`, fontFamily:FS, fontSize:11, letterSpacing:"0.09em", color:(phase==="onboarding"||phase==="profile")?G:MU, textTransform:"uppercase", cursor:"pointer" }}>
+          <button className="lbtn" onClick={() => { setProfileStep(0); const inProfile = phase === "onboarding" || phase === "profile"; setPhase(inProfile ? (analysis ? "results" : "upload") : "profile"); }}
+            style={{ padding:"6px 13px", borderRadius:8,
+              background:(phase==="onboarding"||phase==="profile")?"rgba(255,255,255,.15)":"transparent",
+              border:`1px solid ${(phase==="onboarding"||phase==="profile")?"rgba(255,255,255,.6)":"rgba(255,255,255,.3)"}`,
+              fontFamily:FS, fontSize:11, letterSpacing:"0.09em",
+              color:(phase==="onboarding"||phase==="profile")?"white":"rgba(255,255,255,.8)",
+              textTransform:"uppercase", cursor:"pointer" }}>
             {profile.completedAt ? "◎ Profile" : "◎ Setup"}
           </button>
         </div>
@@ -2308,6 +2752,96 @@ Include concentrations when found. List top 3–5 actives.`
         {phase === "results"   && renderResults(analysis, angles?.front?.preview)}
         {phase === "compare"   && renderCompare()}
       </div>
+    {/* ── Floating Feedback Button ───────────────────────────────────── */}
+    <div style={{ position:"fixed", bottom:76, right:16, zIndex:150 }}>
+      <button onClick={() => setShowFeedback(true)}
+        style={{ padding:"8px 14px", borderRadius:20, background:"#1A2B4A",
+          border:"1px solid rgba(255,255,255,.22)", fontFamily:FS, fontSize:11,
+          color:"rgba(255,255,255,.85)", cursor:"pointer", letterSpacing:"0.08em",
+          boxShadow:"0 2px 12px rgba(26,43,74,.45)", display:"flex", alignItems:"center", gap:6 }}>
+        <span style={{ fontSize:13 }}>◈</span> Feedback
+      </button>
+    </div>
+
+    {/* ── Feedback Panel ──────────────────────────────────────────────── */}
+    {showFeedback && (
+      <div style={{ position:"fixed", inset:0, zIndex:200, background:"rgba(14,20,35,.65)",
+        display:"flex", alignItems:"flex-end", animation:"fadeIn .2s ease" }}
+        onClick={() => setShowFeedback(false)}>
+        <div style={{ width:"100%", background:"#1A2B4A", borderRadius:"20px 20px 0 0",
+          padding:"6px 24px 48px", maxHeight:"80vh", overflowY:"auto" }}
+          onClick={e => e.stopPropagation()}>
+          {/* Handle */}
+          <div style={{ display:"flex", justifyContent:"center", padding:"12px 0 16px" }}>
+            <div style={{ width:36, height:4, borderRadius:2, background:"rgba(255,255,255,.25)" }} />
+          </div>
+
+          {fbDone ? (
+            <div style={{ textAlign:"center", padding:"32px 0" }}>
+              <div style={{ fontSize:36, marginBottom:12 }}>✓</div>
+              <div style={{ fontFamily:FF, fontSize:18, fontStyle:"italic", color:"white", marginBottom:6 }}>Thank you</div>
+              <div style={{ fontFamily:FS, fontSize:13, color:"rgba(255,255,255,.6)" }}>Your feedback has been received.</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontFamily:FF, fontSize:20, fontStyle:"italic", color:"white", marginBottom:18 }}>Send Feedback</div>
+
+              {/* Type chips */}
+              <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:"rgba(255,255,255,.5)", textTransform:"uppercase", marginBottom:8 }}>Type</div>
+              <div style={{ display:"flex", gap:8, marginBottom:20 }}>
+                {["Bug","Suggestion","General"].map(t => (
+                  <button key={t} onClick={() => setFbType(t)}
+                    style={{ padding:"6px 14px", borderRadius:14, fontFamily:FS, fontSize:11, cursor:"pointer",
+                      background: fbType===t ? "rgba(255,255,255,.18)" : "transparent",
+                      border: `1px solid ${fbType===t ? "rgba(255,255,255,.5)" : "rgba(255,255,255,.2)"}`,
+                      color: fbType===t ? "white" : "rgba(255,255,255,.55)" }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              {/* Message */}
+              <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:"rgba(255,255,255,.5)", textTransform:"uppercase", marginBottom:8 }}>Message</div>
+              <textarea value={fbMessage} onChange={e => setFbMessage(e.target.value)}
+                placeholder="Describe what you noticed…"
+                rows={4}
+                style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,.2)",
+                  background:"rgba(255,255,255,.07)", fontFamily:FS, fontSize:14, color:"white",
+                  resize:"none", outline:"none", boxSizing:"border-box",
+                  "::placeholder": { color:"rgba(255,255,255,.3)" } }} />
+
+              {/* Screenshot */}
+              <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:"rgba(255,255,255,.5)", textTransform:"uppercase", marginBottom:8, marginTop:16 }}>Screenshot (optional)</div>
+              {fbShot ? (
+                <div style={{ position:"relative", marginBottom:16 }}>
+                  <img src={fbShot} alt="screenshot" style={{ width:"100%", borderRadius:8, border:"1px solid rgba(255,255,255,.15)" }} />
+                  <button onClick={() => setFbShot(null)}
+                    style={{ position:"absolute", top:6, right:6, width:24, height:24, borderRadius:"50%",
+                      background:"rgba(0,0,0,.55)", border:"none", color:"white", fontSize:12, cursor:"pointer" }}>✕</button>
+                </div>
+              ) : (
+                <label style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", borderRadius:10,
+                  border:"1px dashed rgba(255,255,255,.22)", cursor:"pointer", marginBottom:16 }}>
+                  <span style={{ fontFamily:FS, fontSize:12, color:"rgba(255,255,255,.55)" }}>Attach screenshot from camera roll</span>
+                  <input type="file" accept="image/*" style={{ display:"none" }}
+                    onChange={e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => setFbShot(ev.target.result); r.readAsDataURL(f); }} />
+                </label>
+              )}
+
+              {/* Submit */}
+              <button onClick={submitFeedback} disabled={!fbMessage.trim() || fbSending}
+                style={{ width:"100%", padding:"14px", borderRadius:10, border:"none", cursor:"pointer",
+                  background: fbMessage.trim() ? "linear-gradient(130deg,#1E3560,#2C4A72,#3A5F8A)" : "rgba(255,255,255,.1)",
+                  fontFamily:FS, fontSize:13, color: fbMessage.trim() ? "#F7F4F0" : "rgba(255,255,255,.3)",
+                  letterSpacing:"0.1em", textTransform:"uppercase" }}>
+                {fbSending ? "Sending…" : "Send Feedback"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )}
+
     </div>
     </>
   );

@@ -548,22 +548,30 @@ export default function GlowIQ() {
   /* ── Load history on mount ──────────────────────────────────────── */
   useEffect(() => {
     (async () => {
-      // Load saved history
-      try { const r = await storage.get("glow:index"); if (r) setHistory(JSON.parse(r.value)); } catch {}
+      let list = [];
+      try { const r = await storage.get("glow:index"); if (r) { list = JSON.parse(r.value); setHistory(list); } } catch {}
       try { const p = await storage.get("glow:profile"); if (p) setProfile({ ...DEFAULT_PROFILE, ...JSON.parse(p.value) }); } catch {}
-      // Restore last session (only if it was a completed result)
+
+      // Restore last active session
+      let restored = false;
       try {
         const s = await storage.get("glow:session");
         if (s) {
           const { analysis: a, preview } = JSON.parse(s.value);
           if (a && preview) {
-            setAnalysis(a);
-            setAngles({ front:{ preview, b64: preview.split(",")[1] }, left:null, right:null });
-            setActiveTab("summary");
-            setPhase("results");
+            setAnalysis(a); setAngles({ front:{ preview, b64: preview.split(",")[1] }, left:null, right:null });
+            setActiveTab("summary"); setPhase("results"); restored = true;
           }
         }
       } catch {}
+
+      // No active session but has history — load most recent automatically
+      if (!restored && list.length > 0) {
+        const latest = [...list].sort((a,b) => new Date(b.date) - new Date(a.date))[0];
+        setAnalysis(latest);
+        setAngles({ front:{ preview: latest.thumb, b64: latest.thumb.split(",")[1] }, left:null, right:null });
+        setFromHistory(true); setActiveTab("progress"); setPhase("results");
+      }
     })();
   }, []);
 
@@ -1230,7 +1238,7 @@ Include concentrations when found. List top 3–5 actives.`
 
     const isLast = step === total - 1;
     const onNext = async () => { if (isLast) { await saveProfile(); setPhase(isEdit ? "results" : "upload"); setProfileStep(0); } else setProfileStep(s => s+1); };
-    const onBack = () => { if (step === 0) { setPhase(isEdit ? "results" : "upload"); setProfileStep(0); } else setProfileStep(s => s-1); };
+    const onBack = () => { if (step === 0) { setPhase(isEdit || analysis ? "results" : "upload"); setProfileStep(0); } else setProfileStep(s => s-1); };
 
     return (
       <div style={{ padding:"28px 0 80px" }}>
@@ -1621,6 +1629,21 @@ Include concentrations when found. List top 3–5 actives.`
     const warned  = quality && !quality.checking && quality.score >= 40 && quality.score < 70;
     return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"40px 0 64px" }}>
+      {/* Return to last analysis for existing users */}
+      {history.length > 0 && (
+        <div onClick={() => { const latest=[...history].sort((a,b)=>new Date(b.date)-new Date(a.date))[0]; setAnalysis(latest); setAngles({front:{preview:latest.thumb,b64:latest.thumb.split(",")[1]},left:null,right:null}); setFromHistory(true); setActiveTab("progress"); setPhase("results"); }}
+          style={{ width:"100%", maxWidth:520, padding:"14px 18px", borderRadius:12,
+            background:"rgba(44,74,114,.07)", border:`1px solid rgba(44,74,114,.22)`,
+            cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"space-between",
+            marginBottom:24 }}>
+          <div>
+            <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:G, textTransform:"uppercase", marginBottom:3 }}>Previous Results</div>
+            <div style={{ fontFamily:FF, fontSize:15, color:TX }}>View your results &amp; history</div>
+          </div>
+          <span style={{ fontFamily:FS, fontSize:20, color:G }}>→</span>
+        </div>
+      )}
+
       <div className="up0" style={{ textAlign:"center", marginBottom:32 }}>
         <h1 style={{ fontFamily:FF, fontSize:52, fontWeight:300, color:TX, letterSpacing:"0.04em", lineHeight:1.1 }}>Skin Analysis</h1>
         <p style={{ fontFamily:FS, fontSize:13, color:MU, marginTop:8 }}>Front photo required · Side profiles improve accuracy</p>
@@ -2704,7 +2727,7 @@ Include concentrations when found. List top 3–5 actives.`
               + New
             </button>
           )}
-          <button className="lbtn" onClick={() => { setProfileStep(0); const inProfile = phase === "onboarding" || phase === "profile"; setPhase(inProfile ? "upload" : "profile"); }}
+          <button className="lbtn" onClick={() => { setProfileStep(0); const inProfile = phase === "onboarding" || phase === "profile"; setPhase(inProfile ? (analysis ? "results" : "upload") : "profile"); }}
             style={{ padding:"6px 13px", borderRadius:8,
               background:(phase==="onboarding"||phase==="profile")?"rgba(255,255,255,.15)":"transparent",
               border:`1px solid ${(phase==="onboarding"||phase==="profile")?"rgba(255,255,255,.6)":"rgba(255,255,255,.3)"}`,
