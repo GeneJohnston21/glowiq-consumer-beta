@@ -488,6 +488,12 @@ export default function GlowIQ() {
   const [scanningProd, setScanProd]     = useState(false);
   const [msgIdx,       setMsgIdx]       = useState(0);
   const [deletingId,   setDeletingId]   = useState(null);
+  const [showFeedback, setShowFeedback] = useState(false);
+  const [fbType,       setFbType]       = useState("General");
+  const [fbMessage,    setFbMessage]    = useState("");
+  const [fbShot,       setFbShot]       = useState(null);
+  const [fbSending,    setFbSending]    = useState(false);
+  const [fbDone,       setFbDone]       = useState(false);
   const [pendingResult,setPendingResult] = useState(null);
   const [finalMsgDone, setFinalMsgDone]  = useState(false);
   const [scanStatus,   setScanStatus]  = useState(null);
@@ -580,6 +586,36 @@ export default function GlowIQ() {
   };
 
   /* ── Save to storage ────────────────────────────────────────────── */
+  const compressImage = (b64) => new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const MAX = 900;
+      const r   = Math.min(MAX / img.width, MAX / img.height, 1);
+      const c   = document.createElement("canvas");
+      c.width   = Math.round(img.width  * r);
+      c.height  = Math.round(img.height * r);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      res(c.toDataURL("image/jpeg", 0.72));
+    };
+    img.src = b64;
+  });
+
+  const submitFeedback = async () => {
+    if (!fbMessage.trim()) return;
+    setFbSending(true);
+    try {
+      const shot = fbShot ? await compressImage(fbShot) : null;
+      await fetch("/api/feedback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: fbType, message: fbMessage.trim(), context: phase, screenshot: shot }),
+      });
+      setFbDone(true);
+      setTimeout(() => { setShowFeedback(false); setFbDone(false); setFbMessage(""); setFbShot(null); setFbType("General"); }, 2200);
+    } catch(e) { /* silent */ }
+    setFbSending(false);
+  };
+
   const deleteFromHistory = async (id) => {
     const updated = history.filter(e => e.id !== id);
     setHistory(updated);
@@ -1768,8 +1804,15 @@ Include concentrations when found. List top 3–5 actives.`
       const scoreColor = score >= 80 ? "#14532D" : score >= 60 ? "#7C2D12" : "#B91C1C";
       const scoreLabel = score >= 85 ? "Excellent" : score >= 70 ? "Good" : score >= 55 ? "Fair" : score >= 40 ? "Needs Attention" : "Significant Concerns";
 
+      const hr = new Date().getHours();
+      const greeting = hr < 12 ? "Good morning" : hr < 17 ? "Good afternoon" : "Good evening";
+
       return (
       <div style={{ padding:"20px 0 24px" }}>
+        <div style={{ fontFamily:FF, fontSize:15, fontStyle:"italic", color:MU,
+          marginBottom:14, letterSpacing:"0.04em" }}>
+          {greeting}{profile?.name ? `, ${profile.name.trim().split(" ")[0]}` : ""}.
+        </div>
         <div style={{ display:"flex", gap:14, alignItems:"flex-start", marginBottom:20 }}>
           {preview && (
             <div style={{ width:88, flexShrink:0, borderRadius:10, overflow:"hidden", border:`1px solid ${BR}`, aspectRatio:"3/4" }}>
@@ -2632,42 +2675,42 @@ Include concentrations when found. List top 3–5 actives.`
       `}</style>
       <div style={{ background:BG, minHeight:"100vh", color:TX, fontFamily:FS }}>
       {phase !== "welcome" && (
-      <div style={{ borderBottom:`1px solid ${BR}`, padding:"18px 24px", display:"flex", alignItems:"center", justifyContent:"space-between", position:"relative" }}>
-        <div style={{ cursor:"pointer", display:"flex", alignItems:"center", gap:10 }} onClick={reset}>
-          <svg width="32" height="32" viewBox="0 0 60 60" style={{ flexShrink:0 }}>
-            <circle cx="30" cy="30" r="22" fill="none" stroke={G} strokeWidth="0.75" opacity="0.38"/>
-            <circle cx="30" cy="30" r="14" fill="none" stroke={G} strokeWidth="1.75"/>
-            <circle cx="30" cy="30" r="7"  fill="none" stroke={G} strokeWidth="1.25"/>
-            <circle cx="30" cy="30" r="2.5" fill={G}/>
-            <line x1="30" y1="6"  x2="30" y2="0"  stroke={G} strokeWidth="1.25" strokeLinecap="round"/>
-            <line x1="54" y1="30" x2="60" y2="30" stroke={G} strokeWidth="1.25" strokeLinecap="round"/>
-            <line x1="30" y1="54" x2="30" y2="60" stroke={G} strokeWidth="1.25" strokeLinecap="round"/>
-            <line x1="6"  y1="30" x2="0"  y2="30" stroke={G} strokeWidth="1.25" strokeLinecap="round"/>
-          </svg>
+      <div style={{ background:"#1A2B4A", padding:"16px 22px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+        <div style={{ cursor:"pointer", display:"flex", alignItems:"center", gap:0 }} onClick={reset}>
           <div>
-            <div style={{ fontFamily:FF, fontSize:24, fontWeight:400, letterSpacing:"0.16em", color:TX, lineHeight:1, fontStyle:"italic" }}>GlowIQ</div>
-            <div style={{ fontFamily:FS, fontSize:9, letterSpacing:"0.18em", color:DM, marginTop:3, textTransform:"uppercase" }}>Skin Roadmap</div>
+            <div style={{ display:"flex", alignItems:"center", lineHeight:1, gap:0, marginBottom:4 }}>
+              <span style={{ fontFamily:FF, fontSize:26, fontWeight:500, letterSpacing:"0.14em", color:"white", fontStyle:"italic" }}>Gl</span>
+              <svg width="30" height="33" viewBox="0 0 60 66" style={{ display:"block", margin:"0 2px", flexShrink:0, verticalAlign:"middle" }}>
+                <circle cx="30" cy="33" r="22" fill="none" stroke="rgba(255,255,255,.2)" strokeWidth="2"/>
+                <circle cx="30" cy="33" r="14" fill="none" stroke="rgba(255,255,255,.92)" strokeWidth="5"/>
+                <circle cx="30" cy="33" r="7"  fill="none" stroke="rgba(255,255,255,.58)" strokeWidth="3.5"/>
+                <circle cx="30" cy="33" r="3.5" fill="white"/>
+                <line x1="30" y1="11" x2="30" y2="4"  stroke="white" strokeWidth="3.5" strokeLinecap="round"/>
+                <line x1="52" y1="33" x2="59" y2="33" stroke="white" strokeWidth="3.5" strokeLinecap="round"/>
+                <line x1="30" y1="55" x2="30" y2="62" stroke="white" strokeWidth="3.5" strokeLinecap="round"/>
+                <line x1="8"  y1="33" x2="1"  y2="33" stroke="white" strokeWidth="3.5" strokeLinecap="round"/>
+              </svg>
+              <span style={{ fontFamily:FF, fontSize:26, fontWeight:500, letterSpacing:"0.14em", color:"white", fontStyle:"italic" }}>wIQ</span>
+            </div>
+            <div style={{ fontFamily:FS, fontSize:11, letterSpacing:"0.22em", color:"rgba(255,255,255,.78)", textTransform:"uppercase", textAlign:"right" }}>Skin Roadmap</div>
           </div>
         </div>
-        {profile?.completedAt && (
-          <span style={{ position:"absolute", left:"50%", transform:"translateX(-50%)",
-            fontFamily:FF, fontSize:14, fontStyle:"italic", color:MU, whiteSpace:"nowrap",
-            pointerEvents:"none" }}>
-            {(()=>{const h=new Date().getHours();return h<12?"Good morning":h<17?"Good afternoon":"Good evening";})()}
-            {profile?.name ? `, ${profile.name.trim().split(" ")[0]}` : ""}
-          </span>
-        )}
-        <div style={{ display:"flex", alignItems:"center", gap:14 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:12 }}>
           {saved && <span style={{ fontFamily:FS, fontSize:11, color:"#4ADE80", animation:"fadeIn .3s ease" }}>✓ Saved</span>}
-          {phase === "analyzing" && <div style={{ width:18, height:18, borderRadius:"50%", border:`2px solid ${G}`, borderTopColor:"transparent", animation:"spin .8s linear infinite" }} />}
+          {phase === "analyzing" && <div style={{ width:18, height:18, borderRadius:"50%", border:"2px solid rgba(255,255,255,.5)", borderTopColor:"transparent", animation:"spin .8s linear infinite" }} />}
           {phase === "results" && (
             <button className="lbtn" onClick={reset}
-              style={{ padding:"6px 13px", borderRadius:8, background:"transparent", border:`1px solid ${BR}`, fontFamily:FS, fontSize:11, letterSpacing:"0.09em", color:MU, textTransform:"uppercase", cursor:"pointer" }}>
+              style={{ padding:"6px 13px", borderRadius:8, background:"transparent", border:"1px solid rgba(255,255,255,.3)", fontFamily:FS, fontSize:11, letterSpacing:"0.09em", color:"rgba(255,255,255,.8)", textTransform:"uppercase", cursor:"pointer" }}>
               + New
             </button>
           )}
           <button className="lbtn" onClick={() => { setProfileStep(0); const inProfile = phase === "onboarding" || phase === "profile"; setPhase(inProfile ? "upload" : "profile"); }}
-            style={{ padding:"6px 13px", borderRadius:8, background:(phase==="onboarding"||phase==="profile")?"rgba(44,74,114,.15)":"transparent", border:`1px solid ${(phase==="onboarding"||phase==="profile")?G:BR}`, fontFamily:FS, fontSize:11, letterSpacing:"0.09em", color:(phase==="onboarding"||phase==="profile")?G:MU, textTransform:"uppercase", cursor:"pointer" }}>
+            style={{ padding:"6px 13px", borderRadius:8,
+              background:(phase==="onboarding"||phase==="profile")?"rgba(255,255,255,.15)":"transparent",
+              border:`1px solid ${(phase==="onboarding"||phase==="profile")?"rgba(255,255,255,.6)":"rgba(255,255,255,.3)"}`,
+              fontFamily:FS, fontSize:11, letterSpacing:"0.09em",
+              color:(phase==="onboarding"||phase==="profile")?"white":"rgba(255,255,255,.8)",
+              textTransform:"uppercase", cursor:"pointer" }}>
             {profile.completedAt ? "◎ Profile" : "◎ Setup"}
           </button>
         </div>
@@ -2683,6 +2726,96 @@ Include concentrations when found. List top 3–5 actives.`
         {phase === "results"   && renderResults(analysis, angles?.front?.preview)}
         {phase === "compare"   && renderCompare()}
       </div>
+    {/* ── Floating Feedback Button ───────────────────────────────────── */}
+    <div style={{ position:"fixed", bottom:76, right:16, zIndex:150 }}>
+      <button onClick={() => setShowFeedback(true)}
+        style={{ padding:"8px 14px", borderRadius:20, background:"#1A2B4A",
+          border:"1px solid rgba(255,255,255,.22)", fontFamily:FS, fontSize:11,
+          color:"rgba(255,255,255,.85)", cursor:"pointer", letterSpacing:"0.08em",
+          boxShadow:"0 2px 12px rgba(26,43,74,.45)", display:"flex", alignItems:"center", gap:6 }}>
+        <span style={{ fontSize:13 }}>◈</span> Feedback
+      </button>
+    </div>
+
+    {/* ── Feedback Panel ──────────────────────────────────────────────── */}
+    {showFeedback && (
+      <div style={{ position:"fixed", inset:0, zIndex:200, background:"rgba(14,20,35,.65)",
+        display:"flex", alignItems:"flex-end", animation:"fadeIn .2s ease" }}
+        onClick={() => setShowFeedback(false)}>
+        <div style={{ width:"100%", background:"#1A2B4A", borderRadius:"20px 20px 0 0",
+          padding:"6px 24px 48px", maxHeight:"80vh", overflowY:"auto" }}
+          onClick={e => e.stopPropagation()}>
+          {/* Handle */}
+          <div style={{ display:"flex", justifyContent:"center", padding:"12px 0 16px" }}>
+            <div style={{ width:36, height:4, borderRadius:2, background:"rgba(255,255,255,.25)" }} />
+          </div>
+
+          {fbDone ? (
+            <div style={{ textAlign:"center", padding:"32px 0" }}>
+              <div style={{ fontSize:36, marginBottom:12 }}>✓</div>
+              <div style={{ fontFamily:FF, fontSize:18, fontStyle:"italic", color:"white", marginBottom:6 }}>Thank you</div>
+              <div style={{ fontFamily:FS, fontSize:13, color:"rgba(255,255,255,.6)" }}>Your feedback has been received.</div>
+            </div>
+          ) : (
+            <>
+              <div style={{ fontFamily:FF, fontSize:20, fontStyle:"italic", color:"white", marginBottom:18 }}>Send Feedback</div>
+
+              {/* Type chips */}
+              <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:"rgba(255,255,255,.5)", textTransform:"uppercase", marginBottom:8 }}>Type</div>
+              <div style={{ display:"flex", gap:8, marginBottom:20 }}>
+                {["Bug","Suggestion","General"].map(t => (
+                  <button key={t} onClick={() => setFbType(t)}
+                    style={{ padding:"6px 14px", borderRadius:14, fontFamily:FS, fontSize:11, cursor:"pointer",
+                      background: fbType===t ? "rgba(255,255,255,.18)" : "transparent",
+                      border: `1px solid ${fbType===t ? "rgba(255,255,255,.5)" : "rgba(255,255,255,.2)"}`,
+                      color: fbType===t ? "white" : "rgba(255,255,255,.55)" }}>
+                    {t}
+                  </button>
+                ))}
+              </div>
+
+              {/* Message */}
+              <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:"rgba(255,255,255,.5)", textTransform:"uppercase", marginBottom:8 }}>Message</div>
+              <textarea value={fbMessage} onChange={e => setFbMessage(e.target.value)}
+                placeholder="Describe what you noticed…"
+                rows={4}
+                style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:"1px solid rgba(255,255,255,.2)",
+                  background:"rgba(255,255,255,.07)", fontFamily:FS, fontSize:14, color:"white",
+                  resize:"none", outline:"none", boxSizing:"border-box",
+                  "::placeholder": { color:"rgba(255,255,255,.3)" } }} />
+
+              {/* Screenshot */}
+              <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:"rgba(255,255,255,.5)", textTransform:"uppercase", marginBottom:8, marginTop:16 }}>Screenshot (optional)</div>
+              {fbShot ? (
+                <div style={{ position:"relative", marginBottom:16 }}>
+                  <img src={fbShot} alt="screenshot" style={{ width:"100%", borderRadius:8, border:"1px solid rgba(255,255,255,.15)" }} />
+                  <button onClick={() => setFbShot(null)}
+                    style={{ position:"absolute", top:6, right:6, width:24, height:24, borderRadius:"50%",
+                      background:"rgba(0,0,0,.55)", border:"none", color:"white", fontSize:12, cursor:"pointer" }}>✕</button>
+                </div>
+              ) : (
+                <label style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 14px", borderRadius:10,
+                  border:"1px dashed rgba(255,255,255,.22)", cursor:"pointer", marginBottom:16 }}>
+                  <span style={{ fontFamily:FS, fontSize:12, color:"rgba(255,255,255,.55)" }}>Attach screenshot from camera roll</span>
+                  <input type="file" accept="image/*" style={{ display:"none" }}
+                    onChange={e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => setFbShot(ev.target.result); r.readAsDataURL(f); }} />
+                </label>
+              )}
+
+              {/* Submit */}
+              <button onClick={submitFeedback} disabled={!fbMessage.trim() || fbSending}
+                style={{ width:"100%", padding:"14px", borderRadius:10, border:"none", cursor:"pointer",
+                  background: fbMessage.trim() ? "linear-gradient(130deg,#1E3560,#2C4A72,#3A5F8A)" : "rgba(255,255,255,.1)",
+                  fontFamily:FS, fontSize:13, color: fbMessage.trim() ? "#F7F4F0" : "rgba(255,255,255,.3)",
+                  letterSpacing:"0.1em", textTransform:"uppercase" }}>
+                {fbSending ? "Sending…" : "Send Feedback"}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    )}
+
     </div>
     </>
   );
