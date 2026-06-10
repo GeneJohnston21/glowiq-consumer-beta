@@ -635,7 +635,18 @@ export default function GlowIQ() {
     try {
       const id    = Date.now().toString();
       const thumb = await makeThumbnail(preview);
-      const entry = { id, date: new Date().toISOString(), thumb, skinType: result.skinType, fitzpatrickType: result.fitzpatrickType, overallAssessment: result.overallAssessment, concerns: result.concerns, recommendations: result.recommendations };
+      const entry = { id, date: new Date().toISOString(), thumb,
+        skinType:          result.skinType,
+        fitzpatrickType:   result.fitzpatrickType,
+        skinAge:           result.skinAge,
+        overallAssessment: result.overallAssessment,
+        analysisConfidence:result.analysisConfidence,
+        confidenceNote:    result.confidenceNote,
+        positives:         result.positives,
+        photoTips:         result.photoTips,
+        concerns:          result.concerns,
+        recommendations:   result.recommendations,
+      };
       let list = [];
       try { const r = await window.storage.get("glow:index"); if (r) list = JSON.parse(r.value); } catch {}
       list = [entry, ...list].slice(0, 20);
