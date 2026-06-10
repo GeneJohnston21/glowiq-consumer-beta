@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'
 import { supabaseAdmin } from '@/lib/supabase-admin'
 
 export async function GET(request) {
