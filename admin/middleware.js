@@ -1,45 +1,22 @@
-import { createServerClient } from '@supabase/ssr'
 import { NextResponse } from 'next/server'
 
-export async function middleware(request) {
+export function middleware(request) {
   const { pathname } = request.nextUrl
 
   if (pathname.startsWith('/login') || pathname.startsWith('/api/auth')) {
     return NextResponse.next()
   }
 
-  let response = NextResponse.next({ request })
-
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-    {
-      cookies: {
-        getAll: () => request.cookies.getAll(),
-        setAll: (cookies) => {
-          cookies.forEach(({ name, value, options }) => {
-            request.cookies.set(name, value)
-            response.cookies.set(name, value, options)
-          })
-        },
-      },
-    }
+  // Check for Supabase auth cookie — full validation happens in the layout
+  const hasAuth = request.cookies.getAll().some(c =>
+    c.name.startsWith('sb-') && c.name.includes('auth')
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
-
-  if (!user) {
+  if (!hasAuth) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  const adminEmails = (process.env.ADMIN_EMAILS || '')
-    .split(',').map(e => e.trim().toLowerCase())
-
-  if (!adminEmails.includes(user.email.toLowerCase())) {
-    return NextResponse.redirect(new URL('/login?error=unauthorized', request.url))
-  }
-
-  return response
+  return NextResponse.next()
 }
 
 export const config = {
