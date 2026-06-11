@@ -2,10 +2,13 @@ import { createServerClient } from '@supabase/ssr'
 import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
+export const dynamic = 'force-dynamic'
+
 export const maxDuration = 60
 
 export async function POST(request) {
   try {
+    // Next.js 16 requires awaiting cookies()
     const cookieStore = await cookies()
 
     const supabase = createServerClient(
@@ -21,7 +24,7 @@ export async function POST(request) {
     )
 
     const { data: { user } } = await supabase.auth.getUser()
-   
+    console.log('[claude proxy] user:', user?.id ?? 'NOT AUTHENTICATED')
 
     if (!user) {
       return NextResponse.json(
@@ -31,7 +34,10 @@ export async function POST(request) {
     }
 
     const body = await request.json()
+    console.log('[claude proxy] request size:', JSON.stringify(body).length, 'chars')
+    console.log('[claude proxy] API key present:', !!process.env.ANTHROPIC_API_KEY)
 
+    console.log('[claude proxy] API key present:', !!process.env.ANTHROPIC_API_KEY, 'length:', (process.env.ANTHROPIC_API_KEY||'').length)
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -42,8 +48,9 @@ export async function POST(request) {
       body: JSON.stringify(body),
     })
 
+    // Read as text first so we can log failures
     const text = await response.text()
-
+    console.log('[claude proxy] Anthropic status:', response.status, '| body length:', text.length)
 
     let data
     try {
