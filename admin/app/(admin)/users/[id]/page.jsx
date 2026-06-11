@@ -28,6 +28,19 @@ export default async function UserDetailPage({ params }) {
   try { analyses = JSON.parse(byKey['glow:index']   || '[]') } catch {}
   analyses.sort((a,b) => new Date(b.date) - new Date(a.date))
 
+  // Generate signed URLs for all photos (1 hour expiry)
+  const photoUrls = {}
+  await Promise.allSettled(
+    analyses
+      .filter(e => e.photo_path)
+      .map(async e => {
+        const { data } = await supabaseAdmin.storage
+          .from('analysis-photos')
+          .createSignedUrl(e.photo_path, 3600)
+        if (data?.signedUrl) photoUrls[e.id] = data.signedUrl
+      })
+  )
+
   const SEV_ORDER = { Significant:3, Moderate:2, Mild:1 }
   const SEV_COLOR = {
     Significant: { tx:'#B91C1C', bg:'rgba(185,28,28,.1)',  br:'rgba(185,28,28,.3)'  },
@@ -36,25 +49,22 @@ export default async function UserDetailPage({ params }) {
   }
 
   const profileItems = [
-    { label:'Age',            value: profile.age },
-    { label:'Fitzpatrick',    value: profile.fitzpatrickType },
-    { label:'Skin Type',      value: profile.skinType },
-    { label:'Goals',          value: (profile.goals||[]).join(', ') },
-    { label:'Conditions',     value: (profile.conditions||[]).join(', ') },
-    { label:'Medications',    value: profile.medications },
-    { label:'Allergies',      value: profile.allergies },
-    { label:'SPF',            value: profile.spf },
-    { label:'Sun Exposure',   value: profile.sunExposure },
+    { label:'Age',          value: profile.age },
+    { label:'Fitzpatrick',  value: profile.fitzpatrickType },
+    { label:'Goals',        value: (profile.goals||[]).join(', ') },
+    { label:'Conditions',   value: (profile.conditions||[]).join(', ') },
+    { label:'Medications',  value: profile.medications },
+    { label:'Allergies',    value: profile.allergies },
+    { label:'SPF',          value: profile.spf },
+    { label:'Sun Exposure', value: profile.sunExposure },
   ].filter(i => i.value && i.value.length > 0)
 
   return (
     <div>
-      {/* Breadcrumb */}
       <div style={{ marginBottom:20 }}>
         <a href="/users" style={{ fontFamily:FS, fontSize:12, color:MU }}>← Users</a>
       </div>
 
-      {/* Header */}
       <div style={{ background:'white', border:`1px solid ${BR}`, borderRadius:12,
         padding:'24px 28px', marginBottom:24 }}>
         <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:20 }}>
@@ -72,7 +82,6 @@ export default async function UserDetailPage({ params }) {
           </div>
         </div>
 
-        {/* Profile items */}
         {profileItems.length > 0 && (
           <div style={{ marginTop:20, paddingTop:20, borderTop:`1px solid ${BR}`,
             display:'flex', flexWrap:'wrap', gap:'12px 32px' }}>
@@ -86,7 +95,6 @@ export default async function UserDetailPage({ params }) {
         )}
       </div>
 
-      {/* Analyses */}
       <div style={{ marginBottom:12 }}>
         <h2 style={{ fontFamily:FF, fontSize:22, fontWeight:300, color:TX, margin:0, fontStyle:'italic' }}>
           Analysis History
@@ -105,7 +113,13 @@ export default async function UserDetailPage({ params }) {
 
       <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
         {analyses.map((entry, idx) => (
-          <AnalysisPanel key={entry.id || idx} entry={entry} SEV_COLOR={SEV_COLOR} SEV_ORDER={SEV_ORDER} />
+          <AnalysisPanel
+            key={entry.id || idx}
+            entry={entry}
+            photoUrl={photoUrls[entry.id] || null}
+            SEV_COLOR={SEV_COLOR}
+            SEV_ORDER={SEV_ORDER}
+          />
         ))}
       </div>
     </div>

@@ -1,6 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { storage } from "../lib/storage";
-import { getSupabase } from "../lib/supabase";
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
@@ -549,13 +547,13 @@ export default function GlowIQ() {
   useEffect(() => {
     (async () => {
       let list = [];
-      try { const r = await storage.get("glow:index"); if (r) { list = JSON.parse(r.value); setHistory(list); } } catch {}
-      try { const p = await storage.get("glow:profile"); if (p) setProfile({ ...DEFAULT_PROFILE, ...JSON.parse(p.value) }); } catch {}
+      try { const r = await window.storage.get("glow:index"); if (r) { list = JSON.parse(r.value); setHistory(list); } } catch {}
+      try { const p = await window.storage.get("glow:profile"); if (p) setProfile({ ...DEFAULT_PROFILE, ...JSON.parse(p.value) }); } catch {}
 
       // Restore last active session
       let restored = false;
       try {
-        const s = await storage.get("glow:session");
+        const s = await window.storage.get("glow:session");
         if (s) {
           const { analysis: a, preview } = JSON.parse(s.value);
           if (a && preview) {
@@ -594,6 +592,20 @@ export default function GlowIQ() {
   };
 
   /* ── Save to storage ────────────────────────────────────────────── */
+  // Generate a canvas-compressed image at given max dimension + quality
+  const generateThumb = (dataUrl, maxPx = 400, quality = 0.72) => new Promise(res => {
+    const img = new Image();
+    img.onload = () => {
+      const r = Math.min(maxPx / img.width, maxPx / img.height, 1);
+      const c = document.createElement("canvas");
+      c.width  = Math.round(img.width  * r);
+      c.height = Math.round(img.height * r);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      res(c.toDataURL("image/jpeg", quality));
+    };
+    img.src = dataUrl;
+  });
+
   const compressImage = (b64) => new Promise(res => {
     const img = new Image();
     img.onload = () => {
@@ -637,11 +649,30 @@ export default function GlowIQ() {
     try {
       const id    = Date.now().toString();
       const thumb = await makeThumbnail(preview);
-      const entry = { id, date: new Date().toISOString(), thumb, skinType: result.skinType, fitzpatrickType: result.fitzpatrickType, overallAssessment: result.overallAssessment, concerns: result.concerns, recommendations: result.recommendations };
+
+      // Upload full-res photo (1200px) to Supabase Storage for admin review
+      let photo_path = null;
+      try {
+        const fullRes = await generateThumb(preview, 1200, 0.88);
+        photo_path = await window.storage.uploadPhoto(id, fullRes) ?? null;
+      } catch {}
+
+      const entry = { id, date: new Date().toISOString(), thumb, photo_path,
+        skinType:          result.skinType,
+        fitzpatrickType:   result.fitzpatrickType,
+        skinAge:           result.skinAge,
+        overallAssessment: result.overallAssessment,
+        analysisConfidence:result.analysisConfidence,
+        confidenceNote:    result.confidenceNote,
+        positives:         result.positives,
+        photoTips:         result.photoTips,
+        concerns:          result.concerns,
+        recommendations:   result.recommendations,
+      };
       let list = [];
-      try { const r = await storage.get("glow:index"); if (r) list = JSON.parse(r.value); } catch {}
+      try { const r = await window.storage.get("glow:index"); if (r) list = JSON.parse(r.value); } catch {}
       list = [entry, ...list].slice(0, 20);
-      await storage.set("glow:index", JSON.stringify(list));
+      await window.storage.set("glow:index", JSON.stringify(list));
       setHistory(list);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -659,7 +690,7 @@ export default function GlowIQ() {
         angles.right && { key:"right", label:"right profile", data:angles.right.b64 },
       ].filter(Boolean);
 
-      const API = { method:"POST", headers:{"Content-Type":"application/json",} };
+      const API = { method:"POST", headers:{"Content-Type":"application/json","anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"} };
       const parseJSON = raw => { const t = raw.replace(/```json|```/g,"").trim(); if (!t.startsWith("{")) throw new Error(`Unexpected: "${t.slice(0,80)}"`); return JSON.parse(t); };
 
       // ── Call 1: Concern detection (vision) ──────────────────────────────────
@@ -671,8 +702,8 @@ export default function GlowIQ() {
         ? `${baseText}\n\nFitzpatrick: The user has self-identified as ${profFitz}. Use this exact value.`
         : baseText;
 
-      const r1 = await fetch("/api/claude", { ...API, body: JSON.stringify({
-        model:"claude-sonnet-4-6", max_tokens:4096, temperature:0,
+      const r1 = await fetch("https://api.anthropic.com/v1/messages", { ...API, body: JSON.stringify({
+        model:"claude-sonnet-4-20250514", max_tokens:4096, temperature:0,
         system: buildSystemPrompt(),
         messages:[{ role:"user", content:[
           ...imgs.map(img => ({ type:"image", source:{ type:"base64", media_type:"image/jpeg", data:img.data }})),
@@ -696,8 +727,8 @@ export default function GlowIQ() {
           profile.products?.length     && `Current products: ${profile.products.map(p=>p.name).join(", ")}`,
         ].filter(Boolean).join("; ") : "";
 
-        const r2 = await fetch("/api/claude", { ...API, body: JSON.stringify({
-          model:"claude-sonnet-4-6", max_tokens:3000, temperature:0,
+        const r2 = await fetch("https://api.anthropic.com/v1/messages", { ...API, body: JSON.stringify({
+          model:"claude-sonnet-4-20250514", max_tokens:3000, temperature:0,
           system:"You are a clinical aesthetic treatment specialist. Generate targeted recommendations based on identified skin concerns. Return only JSON.",
           messages:[{ role:"user", content:[{ type:"text", text: RECS_PROMPT(result.concerns, profileCtx, null) }]}],
         })});
@@ -722,19 +753,24 @@ export default function GlowIQ() {
   // Save / clear session in storage whenever phase or analysis changes
   useEffect(() => {
     if (phase === "results" && analysis && angles?.front?.preview) {
-      storage.set("glow:session", JSON.stringify({ analysis, preview: angles.front.preview })).catch(() => {});
+      window.storage.set("glow:session", JSON.stringify({ analysis, preview: angles.front.preview })).catch(() => {});
     }
   }, [phase, analysis]);
 
   const handleSignOut = async () => {
-    try { await getSupabase().auth.signOut(); } catch(e) {}
-    window.location.href = "/";
+    try {
+      // In deployed version this calls supabase.auth.signOut()
+      // In artifact preview, just reset to welcome state
+      await storage.delete("glow:session");
+      setPhase("welcome"); setSession(null); setPreview(null);
+      setProfile({}); setHistory([]); setProviderMapUrl(null);
+    } catch(e) { setPhase("welcome"); }
   };
 
   const reset = () => {
     setPhase("upload"); setAngles({ front:null, left:null, right:null }); setAnalysis(null);
     setError(null); setFromHistory(false); setQuality(null);
-    storage.delete("glow:session").catch(() => {});
+    window.storage.delete("glow:session").catch(() => {});
   };
   const goBack = () => { if (fromHistory) { setPhase("history"); setFromHistory(false); } else reset(); };
 
@@ -758,22 +794,22 @@ export default function GlowIQ() {
       : [saved, ...treatmentLogs];
     const sorted = [...updated].sort((a,b) => new Date(b.date) - new Date(a.date));
     setTxLogs(sorted);
-    try { await storage.set("glow:txlogs", JSON.stringify(sorted)); } catch {}
+    try { await window.storage.set("glow:txlogs", JSON.stringify(sorted)); } catch {}
     setEditingLog(null);
   };
 
   const deleteTreatmentLog = async (id) => {
     const updated = treatmentLogs.filter(l => l.id !== id);
     setTxLogs(updated);
-    try { await storage.set("glow:txlogs", JSON.stringify(updated)); } catch {}
+    try { await window.storage.set("glow:txlogs", JSON.stringify(updated)); } catch {}
   };
 
   const clearAllData = async () => {
     try {
-      await storage.delete("glow:index");
-      await storage.delete("glow:profile");
-      await storage.delete("glow:session");
-      await storage.delete("glow:txlogs");
+      await window.storage.delete("glow:index");
+      await window.storage.delete("glow:profile");
+      await window.storage.delete("glow:session");
+      await window.storage.delete("glow:txlogs");
     } catch {}
     setHistory([]); setProfile({ ...DEFAULT_PROFILE }); setAnalysis(null); setTxLogs([]);
     setAngles({ front:null, left:null, right:null }); setCompareIds([]);
@@ -784,7 +820,7 @@ export default function GlowIQ() {
   const saveProfile = async (extra = {}) => {
     const saved = { ...profile, ...extra, completedAt: Date.now() };
     setProfile(saved);
-    try { await storage.set("glow:profile", JSON.stringify(saved)); } catch {}
+    try { await window.storage.set("glow:profile", JSON.stringify(saved)); } catch {}
   };
 
   const scanProduct = async (file) => {
@@ -807,11 +843,11 @@ export default function GlowIQ() {
 
       // ── Step 1: Identify brand + product name from image ────────────────────
       setScanStatus("Identifying product…");
-      const step1 = await fetch("/api/claude", {
+      const step1 = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type":"application/json",   },
+        headers: { "Content-Type":"application/json", "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6", max_tokens: 200, temperature: 0,
+          model: "claude-sonnet-4-20250514", max_tokens: 200, temperature: 0,
           system: "You identify skincare products from any image: marketing photos, lifestyle shots, packshots, social media ads. Read every piece of text visible — brand logo, product name, tagline, product line, size, claims. Return only JSON.",
           messages: [{ role:"user", content:[
             { type:"image", source:{ type:"base64", media_type:"image/jpeg", data:b64 }},
@@ -851,11 +887,11 @@ Use empty string only if you genuinely cannot read any text at all.` },
       const searchTerm = [product.brand, product.name].filter(s => s && s !== "other").join(" ").trim();
       if (searchTerm) {
         setScanStatus(`Looking up "${searchTerm}"…`);
-        const step2 = await fetch("/api/claude", {
+        const step2 = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          headers: { "Content-Type":"application/json",   },
+          headers: { "Content-Type":"application/json", "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
           body: JSON.stringify({
-            model: "claude-sonnet-4-6", max_tokens: 1024, temperature: 0,
+            model: "claude-sonnet-4-20250514", max_tokens: 1024, temperature: 0,
             system: "You are a skincare ingredient researcher with web search access. Search for product ingredient lists and return structured JSON only.",
             tools: [{ type:"web_search_20250305", name:"web_search" }],
             messages: [{ role:"user", content:[{ type:"text", text:
@@ -931,11 +967,11 @@ Include concentrations when found. List top 3–5 actives.`
     if (!older?.thumb || !newer?.thumb) return;
     setCompareAI({ loading: true });
     try {
-      const res = await fetch("/api/claude", {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type":"application/json",   },
+        headers: { "Content-Type":"application/json", "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-6", max_tokens: 1024, temperature: 0,
+          model: "claude-sonnet-4-20250514", max_tokens: 1024, temperature: 0,
           system: "You are a skin analysis assistant comparing facial photos over time. Focus only on visible skin characteristics. Always return valid JSON as instructed.",
           messages: [{ role:"user", content:[
             { type:"image", source:{ type:"base64", media_type:"image/jpeg", data: older.thumb.split(",")[1] }},
