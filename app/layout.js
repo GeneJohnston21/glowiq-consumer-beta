@@ -1,5 +1,4 @@
 import './globals.css'
-import RegisterSW from '../components/RegisterSW'
 
 export const metadata = {
   title: 'GlowIQ — Skin Roadmap',
@@ -26,8 +25,12 @@ export default function RootLayout({ children }) {
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
       <body>
-        <RegisterSW />
         {children}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js')})}`,
+          }}
+        />
       </body>
     </html>
   )
