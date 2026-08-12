@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { storage } from "../lib/storage";
 import { getSupabase } from "../lib/supabase";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ReferenceLine, ResponsiveContainer } from "recharts";
 
 // ── CONSTANTS ──────────────────────────────────────────────────────────────
 
@@ -110,9 +111,10 @@ Return ONLY valid JSON — no markdown, no code fences:
 Be generous — if you can read a brand name and guess the product type from context, include it. Only return unknown fields as empty strings or empty arrays, never the whole object as unknown unless you genuinely see nothing identifiable.`;
 
 const PROFILE_GOALS        = ["Reduce Acne","Anti-Aging","Even Skin Tone","Deep Hydration","Reduce Redness","Minimise Pores","Brighter Skin","Reduce Scarring"];
+const HAIR_GOALS           = ["Prevent Further Loss","Regrow Hair","Improve Density","Healthier Scalp","Slow Thinning","Explore Treatments","Track Progress","Surgical Evaluation"];
 const PROFILE_CONDITIONS   = ["Acne","Rosacea","Eczema","Psoriasis","Melasma","Perioral Dermatitis","Seborrheic Dermatitis","None"];
 const PROFILE_SENSITIVITIES= ["Fragrance","Retinoids","AHA / BHA","Niacinamide","Silicones","Essential Oils","Alcohol"];
-const PROFILE_MEDICATIONS  = ["Tretinoin / Retinoid","Isotretinoin (Accutane)","Oral Antibiotics","Hormonal Birth Control","Topical Steroids","Spironolactone","None"];
+const PROFILE_MEDICATIONS  = ["Tretinoin / Retinoid","Isotretinoin (Accutane)","Oral Antibiotics","Hormonal Birth Control","Topical Steroids","Spironolactone","GLP-1 (Ozempic / Wegovy / Mounjaro)","None"];
 const PROFILE_PROCEDURES   = ["Chemical Peel","Laser Resurfacing","IPL","Microneedling","Dermal Filler","Botox / Neurotoxin","Microdermabrasion"];
 const PROCEDURE_TIMING     = ["Within 4 weeks","1–3 months ago","3–6 months ago","6+ months ago"];
 
@@ -159,7 +161,7 @@ const SUN_OPTIONS          = [["minimal","Minimal","Mostly indoors"],["moderate"
 const SPF_OPTIONS          = [["never","Never"],["sometimes","Sometimes"],["daily","Every day"]];
 
 const DEFAULT_PROFILE = {
-  name:"", age:"", fitzpatrickType:"", goals:[], conditions:[], allergies:"", sensitivities:[],
+  name:"", age:"", fitzpatrickType:"", goals:[], hairGoals:[], conditions:[], allergies:"", sensitivities:[],
   medications:[], pregnant:"no", recentProcedures:[], procedureTiming:"",
   sunExposure:"", spfHabit:"", products:[], completedAt:null,
 };
@@ -196,6 +198,63 @@ const ANALYSIS_MESSAGES = [
   "Compiling your Skin Roadmap\u2026",
 ];
 
+const HAIR_MSGS = [
+  "Assessing hair density and distribution patterns…",
+  "Mapping follicular coverage across scalp zones…",
+  "Classifying hair loss pattern and progression stage…",
+  "Identifying scalp health indicators…",
+  "Detecting miniaturisation and follicle stress signs…",
+  "Cross-referencing against restoration protocols…",
+  "Evaluating treatment candidacy…",
+  "Compiling your Hair Restoration report…",
+];
+
+const SKIN_MSGS = [
+  "Examining surface texture and pigmentation patterns…",
+  "Assessing border characteristics and distribution…",
+  "Identifying morphological features…",
+  "Cross-referencing against dermatological patterns…",
+  "Reviewing inflammatory markers and colour variation…",
+  "Evaluating clinical indicators…",
+  "Assessing differential diagnoses…",
+  "Compiling your Skin Check report…",
+];
+
+const TIER_COLOR = {
+  premium:   { label:"In-Clinic",  tx:"#1E3560", bg:"rgba(30,53,96,.08)",  br:"rgba(30,53,96,.25)"  },
+  "at-home": { label:"At-Home",    tx:"#14532D", bg:"rgba(21,128,61,.08)", br:"rgba(21,128,61,.25)" },
+  surgical:  { label:"Surgical",   tx:"#7C2D12", bg:"rgba(124,45,18,.08)", br:"rgba(124,45,18,.25)" },
+  referral:  { label:"Specialist", tx:"#B91C1C", bg:"rgba(185,28,28,.08)", br:"rgba(185,28,28,.25)" },
+};
+
+// ── Typical hair density range by profile ────────────────────────────────────
+const hairTypicalRange = (age, sex, familyHistory, duration) => {
+  if (!age || !sex) return null;
+  const a = parseInt(age) || 35;
+  const isMale = sex === "male";
+  // Base ranges by age + sex
+  const base = isMale ? (
+    a < 30 ? [90,100] : a < 40 ? [85,98] : a < 50 ? [78,94] : a < 60 ? [70,90] : [62,84]
+  ) : (
+    a < 30 ? [92,100] : a < 40 ? [88,100] : a < 50 ? [82,98] : a < 60 ? [76,95] : [70,92]
+  );
+  let [lo, hi] = base;
+  // Family history shifts range down
+  if (familyHistory === "both")  { lo -= isMale?18:12; hi -= isMale?10:7; }
+  if (familyHistory === "one")   { lo -= isMale?10:7;  hi -= isMale?5:4; }
+  // Duration shifts range down (established loss vs early)
+  if (duration === "5+")  { lo -= 12; hi -= 6; }
+  if (duration === "3-5") { lo -= 7;  hi -= 4; }
+  if (duration === "1-2") { lo -= 3;  hi -= 2; }
+  return { lo: Math.max(0, Math.round(lo)), hi: Math.min(100, Math.round(hi)) };
+};
+
+const dtCol = dt => {
+  if (!dt||dt==="None")    return{tx:"#14532D",bg:"rgba(21,128,61,.1)",br:"rgba(21,128,61,.3)"}
+  if(dt.includes("1-2 d")) return{tx:"#7C2D12",bg:"rgba(146,64,14,.1)",br:"rgba(146,64,14,.3)"}
+  if(dt.includes("3-5"))   return{tx:"#C2410C",bg:"rgba(194,65,12,.1)",br:"rgba(194,65,12,.3)"}
+  return{tx:"#B91C1C",bg:"rgba(185,28,28,.1)",br:"rgba(185,28,28,.3)"}
+};
 const SEV = {
   Mild:        { bg:"rgba(161,98,7,.12)",    br:"rgba(161,98,7,.35)",    tx:"#A16207" },
   Moderate:    { bg:"rgba(194,65,12,.12)",   br:"rgba(194,65,12,.35)",   tx:"#C2410C" },
@@ -337,7 +396,13 @@ function ConfidenceBars({ level = "Medium" }) {
 
 // ── BEFORE / AFTER SLIDER ──────────────────────────────────────────────────
 
-function BeforeAfterSlider({ beforeSrc, afterSrc, beforeLabel, afterLabel }) {
+const healthScore = (concerns) => {
+  if (!concerns) return null;
+  const ded = concerns.reduce((t,c)=>t+(c.severity==="Significant"?18:c.severity==="Moderate"?10:4),0);
+  return Math.max(10, 100-ded);
+};
+
+function BeforeAfterSlider({ beforeSrc, afterSrc, beforeLabel, afterLabel, beforeScore, afterScore }) {
   const [pos, setPos]         = useState(50);
   const [dragging, setDrag]   = useState(false);
   const ref                   = useRef(null);
@@ -380,6 +445,22 @@ function BeforeAfterSlider({ beforeSrc, afterSrc, beforeLabel, afterLabel }) {
         <img src={afterSrc} alt="After"
           style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover", objectPosition:"center top", pointerEvents:"none" }}/>
       </div>
+
+      {/* Score badges */}
+      {beforeScore != null && (
+        <div style={{ position:"absolute", bottom:10, left:10, pointerEvents:"none",
+          background:"rgba(0,0,0,.6)", borderRadius:10, padding:"6px 12px", textAlign:"center" }}>
+          <div style={{ fontFamily:"Georgia,serif", fontSize:24, color:"white", lineHeight:1 }}>{beforeScore}</div>
+          <div style={{ fontFamily:"system-ui,sans-serif", fontSize:8, color:"rgba(255,255,255,.7)", letterSpacing:"0.1em", textTransform:"uppercase", marginTop:2 }}>Health Score</div>
+        </div>
+      )}
+      {afterScore != null && (
+        <div style={{ position:"absolute", bottom:10, right:10, pointerEvents:"none",
+          background:"rgba(0,0,0,.6)", borderRadius:10, padding:"6px 12px", textAlign:"center" }}>
+          <div style={{ fontFamily:"Georgia,serif", fontSize:24, color:"white", lineHeight:1 }}>{afterScore}</div>
+          <div style={{ fontFamily:"system-ui,sans-serif", fontSize:8, color:"rgba(255,255,255,.7)", letterSpacing:"0.1em", textTransform:"uppercase", marginTop:2 }}>Health Score</div>
+        </div>
+      )}
 
       {/* Divider line */}
       <div style={{ position:"absolute", top:0, bottom:0, left:`${pos}%`, transform:"translateX(-50%)",
@@ -488,6 +569,24 @@ export default function GlowIQ() {
   const [scanningProd, setScanProd]     = useState(false);
   const [msgIdx,       setMsgIdx]       = useState(0);
   const [deletingId,   setDeletingId]   = useState(null);
+  // Multi-mode states
+  const [monoPreview,  setMonoPreview]  = useState(null);     // single photo for hair/skin
+  const [monoContext,  setMonoContext]  = useState("");        // user context for hair/skin
+  const [hairResult,   setHairResult]   = useState(null);
+  const [skinResult,   setSkinResult]   = useState(null);
+  const [hairHistory,  setHairHistory]  = useState([]);
+  const [dermHistory,  setDermHistory]  = useState([]);
+  const [selectedId,   setSelectedId]   = useState(null);
+  const [hairAngles,   setHairAngles]   = useState({ crown:null, hairline:null, leftTemple:null, rightTemple:null });
+  const [hairProfile,  setHairProfile]  = useState(null);   // hair-specific intake data
+  const [hairIntake,   setHairIntake]   = useState({ sex:"", familyHistory:"", duration:"", prevTreatments:[], hairGoals:[] });
+  const [hairIntakeStep, setHairIntakeStep] = useState(0);
+  const [hairTab,        setHairTab]        = useState("analyse"); // "analyse"|"progress"
+  const [skinTab,        setSkinTab]        = useState("analyse"); // "analyse"|"history"
+  const [sliderPos,      setSliderPos]      = useState(50);        // before/after slider
+  const [appTab,       setAppTab]       = useState("home");   // "home"|"face"|"hair"|"skin"
+  const [hairPhase,    setHairPhase]    = useState("upload"); // "upload"|"analyzing"|"results"
+  const [skinPhase,    setSkinPhase]    = useState("upload"); // "upload"|"analyzing"|"results"
   const [showFeedback, setShowFeedback] = useState(false);
   const [fbType,       setFbType]       = useState("General");
   const [fbMessage,    setFbMessage]    = useState("");
@@ -513,23 +612,29 @@ export default function GlowIQ() {
 
   /* ── Analyze step counter ───────────────────────────────────────── */
   useEffect(() => {
-    if (phase !== "analyzing") { setStep(0); setMsgIdx(0); return; }
+    const anyAnalyzing = phase==="analyzing"||hairPhase==="analyzing"||skinPhase==="analyzing";
+    if (!anyAnalyzing) { setStep(0); setMsgIdx(0); return; }
     let s = 0;
     const t = setInterval(() => { s++; setStep(s); if (s >= ANALYZING_ITEMS.length) clearInterval(t); }, 700);
     return () => clearInterval(t);
-  }, [phase]);
+  }, [phase, hairPhase, skinPhase]);
 
   useEffect(() => {
-    if (phase !== "analyzing") return;
+    const anyAnalyzing = phase==="analyzing"||hairPhase==="analyzing"||skinPhase==="analyzing";
+    if (!anyAnalyzing) { setMsgIdx(0); return; }
+    const msgs = (hairPhase==="analyzing"||appTab==="hair") ? HAIR_MSGS
+      : (skinPhase==="analyzing"||appTab==="skin") ? SKIN_MSGS
+      : ANALYSIS_MESSAGES;
     const t = setInterval(() => {
-      setMsgIdx(i => i < ANALYSIS_MESSAGES.length - 1 ? i + 1 : i);
+      setMsgIdx(i => i < msgs.length - 1 ? i + 1 : i);
     }, 4320);
     return () => clearInterval(t);
-  }, [phase]);
+  }, [phase, hairPhase, skinPhase]);
 
   // When last message appears, hold for 2× the interval before allowing transition
   useEffect(() => {
-    if (msgIdx < ANALYSIS_MESSAGES.length - 1) return;
+    const msgsF = (hairPhase==="analyzing"||appTab==="hair")?HAIR_MSGS:(skinPhase==="analyzing"||appTab==="skin")?SKIN_MSGS:ANALYSIS_MESSAGES;
+    if (msgIdx < msgsF.length - 1) return;
     const t = setTimeout(() => setFinalMsgDone(true), 4320 * 2);
     return () => clearTimeout(t);
   }, [msgIdx]);
@@ -542,7 +647,7 @@ export default function GlowIQ() {
 
   // Reset on phase exit
   useEffect(() => {
-    if (phase !== "analyzing") { setFinalMsgDone(false); }
+    if (phase!=="analyzing"&&hairPhase!=="analyzing"&&skinPhase!=="analyzing") { setFinalMsgDone(false); }
   }, [phase]);
 
   /* ── Load history on mount ──────────────────────────────────────── */
@@ -551,6 +656,9 @@ export default function GlowIQ() {
       let list = [];
       try { const r = await storage.get("glow:index"); if (r) { list = JSON.parse(r.value); setHistory(list); } } catch {}
       try { const p = await storage.get("glow:profile"); if (p) setProfile({ ...DEFAULT_PROFILE, ...JSON.parse(p.value) }); } catch {}
+      try { const h = await storage.get("glow:hair");   if(h) setHairHistory(JSON.parse(h.value)); } catch {}
+      try { const hp = await storage.get("glow:hairProfile"); if(hp) setHairProfile(JSON.parse(hp.value)); } catch {}
+      try { const d = await storage.get("glow:derm"); if(d) setDermHistory(JSON.parse(d.value)); } catch {}
 
       // Restore last active session
       let restored = false;
@@ -638,6 +746,84 @@ export default function GlowIQ() {
     setFbSending(false);
   };
 
+  /* ── Hair & Skin analyze functions ─────────────────────────────── */
+  const analyzeHairOrSkin = async () => {
+    const isHair = appTab === "hair";
+    if (isHair && !hairAngles.crown) return;
+    if (!isHair && !monoPreview) return;
+    setError(null);
+    if (isHair) setHairPhase("analyzing"); else setSkinPhase("analyzing");
+
+    // ── Build prompt ──────────────────────────────────────────────────
+    const hairPrompt = `You are an expert trichologist providing EDUCATIONAL information only. You are analyzing ${Object.values(hairAngles).filter(Boolean).length > 1 ? "multiple angles" : "one angle"} of a patient's scalp. Synthesize ALL provided views for a comprehensive assessment. Classify using Norwood Scale (I-VII) for male or Ludwig Scale (I-III) for female, or: diffuse thinning, alopecia areata, GLP-1/medication-induced, traction alopecia, telogen effluvium. Assess density and miniaturisation signs across all angles. ${monoContext ? `Patient notes: "${monoContext}".` : ""} ${hairProfile ? `Patient profile: ${hairProfile.sex || ""}, age ${profile?.age || "unknown"}, family history: ${hairProfile.familyHistory || "unknown"}, thinning duration: ${hairProfile.duration || "unknown"}, previous treatments: ${(hairProfile.prevTreatments||[]).join(", ")||"none"}, hair goals: ${(profile?.hairGoals||[]).join(", ")||"not specified"}, GLP-1 medication: ${(profile?.medications||[]).some(m=>m.includes("GLP-1")) ? "yes — use prevention-first protocol" : "no"}.` : ""} TREATMENT RULES: Early → exosomes, PRP, LLLT, minoxidil. Active loss → PRP series, MaxGraft/FUE. GLP-1 → prevention protocol first. Alopecia areata → specialist referral only.
+
+Return ONLY valid JSON: {"densityScore":72,"findings":[{"id":1,"condition":"Classification","confidence":"low|moderate|high","description":"2-3 sentences","urgency":"routine|soon|urgent|emergency","location":{"x":0.5,"y":0.4,"r":0.18},"characteristics":["c1"],"prognosis":"without treatment","selfCare":["s1"],"seekCareWhen":"guidance","redFlags":["r1"],"clinicalNote":"note","treatments":[{"procedure":"Name","tier":"premium|at-home|surgical|referral","description":"1 sentence","price":"range","downtime":"None|etc","why":"1 sentence"}]}],"photoQuality":"good|limited|insufficient","photoNote":""}
+
+densityScore: integer 0-100. 85-100=normal, 70-84=mildly reduced, 55-69=moderately reduced, 40-54=significantly reduced, below 40=severe loss. Base on visible follicle coverage and scalp visibility across all provided angles.`;
+
+    const skinPrompt = `You are an expert dermatologist providing EDUCATIONAL information only. Analyze ALL visible skin features carefully. Pay close attention to colour especially yellowish tints, deposits, plaques. EYELID GUIDE: Yellowish tint → xanthelasma NOT chalazion. ${monoContext ? `User concerned about: "${monoContext}".` : ""} Return ONLY valid JSON: {"findings":[{"id":1,"condition":"Name","confidence":"low|moderate|high","description":"2 sentences","urgency":"routine|soon|urgent|emergency","location":{"x":0.5,"y":0.5,"r":0.1},"characteristics":["c1"],"differential":["d1"],"selfCare":["s1"],"seekCareWhen":"guidance","redFlags":["r1"],"clinicalNote":"note","treatments":[{"procedure":"Name","tier":"premium|at-home|surgical|referral","description":"1 sentence","price":"range","downtime":"None|etc","why":"1 sentence"}]}],"photoQuality":"good|limited|insufficient","photoNote":""}`;
+
+    try {
+      // ── Build content array (multi-image for hair) ────────────────────
+      const content = [];
+      if (isHair) {
+        const angleLabels = [
+          { key:"crown",       label:"Crown — top-down overhead view (primary diagnostic angle)" },
+          { key:"hairline",    label:"Hairline — frontal view showing forehead recession" },
+          { key:"leftTemple",  label:"Left temple — lateral view of left temporal area" },
+          { key:"rightTemple", label:"Right temple — lateral view of right temporal area" },
+        ];
+        const provided = angleLabels.filter(a => hairAngles[a.key]);
+        if (provided.length > 1) {
+          content.push({ type:"text", text:`The following ${provided.length} images are different angles of the same patient's scalp. Analyse them together for a comprehensive assessment.` });
+        }
+        for (const { key, label } of angleLabels) {
+          if (hairAngles[key]) {
+            const c = await generateThumb(hairAngles[key], 1000, 0.85);
+            content.push({ type:"image", source:{ type:"base64", media_type:"image/jpeg", data:c.split(",")[1] } });
+            content.push({ type:"text", text:`Above image: ${label}` });
+          }
+        }
+        content.push({ type:"text", text:hairPrompt });
+      } else {
+        const comp = await generateThumb(monoPreview, 1200, 0.88);
+        content.push({ type:"image", source:{ type:"base64", media_type:"image/jpeg", data:comp.split(",")[1] } });
+        content.push({ type:"text", text:skinPrompt });
+      }
+
+      const b64 = isHair ? (await generateThumb(hairAngles.crown, 1200, 0.88)).split(",")[1] : (await generateThumb(monoPreview, 1200, 0.88)).split(",")[1];
+      const res  = await fetch("/api/claude", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({ model:"claude-sonnet-4-6", max_tokens:4000, temperature:0,
+          messages:[{ role:"user", content }]
+        })
+      });
+      const data  = await res.json();
+      const text  = data.content?.[0]?.text || "";
+      const parsed = JSON.parse(text.replace(/```json\n?|```/g,"").trim());
+      const findings = parsed.findings || [{ ...parsed, id:1 }];
+      const normalised = { densityScore: parsed.densityScore||null, findings: findings.map((f,i)=>({...f,id:f.id??i+1})), photoQuality:parsed.photoQuality||"good", photoNote:parsed.photoNote||"" };
+      const thumb = isHair
+        ? await generateThumb(hairAngles.crown, 200, 0.7)
+        : await generateThumb(monoPreview, 200, 0.7);
+      const compare = isHair ? await generateThumb(hairAngles.crown, 640, 0.82) : await generateThumb(monoPreview, 640, 0.82);
+      const entry = { id:Date.now(), date:new Date().toISOString(), thumb, compare, mode, result:normalised };
+      const capHistory = (list) => list.slice(0, 15).map((e, i) => i < 8 ? e : { ...e, compare: undefined });
+      if (isHair) {
+        setHairResult(normalised);
+        setHairHistory(h => { const n = capHistory([entry,...h]); storage.set("glow:hair", JSON.stringify(n)); return n; });
+      } else {
+        setSkinResult(normalised);
+        setDermHistory(h => { const n = capHistory([entry,...h]); storage.set("glow:derm", JSON.stringify(n)); return n; });
+      }
+      if (isHair) { setHairPhase("results"); } else setSkinPhase("results");
+    } catch(e) {
+      console.error(e);
+      setError(`Analysis failed: ${e.message || "please check the photo and try again"}`);
+      if (isHair) setHairPhase("upload"); else setSkinPhase("upload");
+    }
+  };
+
   const deleteFromHistory = async (id) => {
     const updated = history.filter(e => e.id !== id);
     setHistory(updated);
@@ -649,8 +835,9 @@ export default function GlowIQ() {
 
   const saveToHistory = async (result, preview) => {
     try {
-      const id    = Date.now().toString();
-      const thumb = await makeThumbnail(preview);
+      const id      = Date.now().toString();
+      const thumb   = await makeThumbnail(preview);
+      const compare = await generateThumb(preview, 640, 0.82);
 
       // Upload full-res photo (1200px) to Supabase Storage for admin review
       let photo_path = null;
@@ -659,7 +846,7 @@ export default function GlowIQ() {
         photo_path = await storage.uploadPhoto(id, fullRes) ?? null;
       } catch {}
 
-      const entry = { id, date: new Date().toISOString(), thumb, photo_path,
+      const entry = { id, date: new Date().toISOString(), thumb, compare, photo_path,
         skinType:          result.skinType,
         fitzpatrickType:   result.fitzpatrickType,
         skinAge:           result.skinAge,
@@ -673,7 +860,7 @@ export default function GlowIQ() {
       };
       let list = [];
       try { const r = await storage.get("glow:index"); if (r) list = JSON.parse(r.value); } catch {}
-      list = [entry, ...list].slice(0, 20);
+      list = [entry, ...list].slice(0, 20).map((e, i) => i < 8 ? e : { ...e, compare: undefined });
       await storage.set("glow:index", JSON.stringify(list));
       setHistory(list);
       setSaved(true);
@@ -692,7 +879,7 @@ export default function GlowIQ() {
         angles.right && { key:"right", label:"right profile", data:angles.right.b64 },
       ].filter(Boolean);
 
-      const API = { method:"POST", headers:{"Content-Type":"application/json",} };
+      const API = { method:"POST", headers:{"Content-Type":"application/json"} };
       const parseJSON = raw => { const t = raw.replace(/```json|```/g,"").trim(); if (!t.startsWith("{")) throw new Error(`Unexpected: "${t.slice(0,80)}"`); return JSON.parse(t); };
 
       // ── Call 1: Concern detection (vision) ──────────────────────────────────
@@ -764,7 +951,7 @@ export default function GlowIQ() {
     window.location.href = "/";
   };
 
-  const reset = () => {
+  const reset = () => { setHairResult(null); setSkinResult(null); setMonoPreview(null); setSelectedId(null); setAppTab("home");
     setPhase("upload"); setAngles({ front:null, left:null, right:null }); setAnalysis(null);
     setError(null); setFromHistory(false); setQuality(null);
     storage.delete("glow:session").catch(() => {});
@@ -842,7 +1029,7 @@ export default function GlowIQ() {
       setScanStatus("Identifying product…");
       const step1 = await fetch("/api/claude", {
         method: "POST",
-        headers: { "Content-Type":"application/json",   },
+        headers: { "Content-Type":"application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-6", max_tokens: 200, temperature: 0,
           system: "You identify skincare products from any image: marketing photos, lifestyle shots, packshots, social media ads. Read every piece of text visible — brand logo, product name, tagline, product line, size, claims. Return only JSON.",
@@ -886,7 +1073,7 @@ Use empty string only if you genuinely cannot read any text at all.` },
         setScanStatus(`Looking up "${searchTerm}"…`);
         const step2 = await fetch("/api/claude", {
           method: "POST",
-          headers: { "Content-Type":"application/json",   },
+          headers: { "Content-Type":"application/json" },
           body: JSON.stringify({
             model: "claude-sonnet-4-6", max_tokens: 1024, temperature: 0,
             system: "You are a skincare ingredient researcher with web search access. Search for product ingredient lists and return structured JSON only.",
@@ -966,7 +1153,7 @@ Include concentrations when found. List top 3–5 actives.`
     try {
       const res = await fetch("/api/claude", {
         method: "POST",
-        headers: { "Content-Type":"application/json",   },
+        headers: { "Content-Type":"application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-6", max_tokens: 1024, temperature: 0,
           system: "You are a skin analysis assistant comparing facial photos over time. Focus only on visible skin characteristics. Always return valid JSON as instructed.",
@@ -1035,9 +1222,16 @@ Include concentrations when found. List top 3–5 actives.`
             style={{ width:"100%", padding:"12px 14px", borderRadius:10, border:`1px solid ${BR}`, background:"rgba(255,255,255,.92)", fontFamily:FS, fontSize:16, color:TX, outline:"none" }} />
 
           <SectionLabel t="Primary Skin Goals" />
-          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+          <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:4 }}>
             {PROFILE_GOALS.map(g => (
               <Chip key={g} label={g} on={profile.goals.includes(g)} onClick={() => updPro("goals", togArr(profile.goals, g))} />
+            ))}
+          </div>
+
+          <SectionLabel t="Primary Hair Goals" />
+          <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
+            {HAIR_GOALS.map(g => (
+              <Chip key={g} label={g} on={(profile.hairGoals||[]).includes(g)} onClick={() => updPro("hairGoals", togArr(profile.hairGoals||[], g))} />
             ))}
           </div>
         </div>
@@ -1097,7 +1291,8 @@ Include concentrations when found. List top 3–5 actives.`
 
       if (step === 2) return (
         <div>
-          <SectionLabel t="Current Skin-Affecting Medications" />
+          <SectionLabel t="Current Medications" />
+          <div style={{ fontFamily:FS, fontSize:12, color:MU, marginBottom:10, lineHeight:1.5 }}>Include GLP-1 medications — these can affect both skin and hair health.</div>
           <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
             {PROFILE_MEDICATIONS.map(m => (
               <Chip key={m} label={m} on={profile.medications.includes(m)} onClick={() => updPro("medications", togArr(profile.medications, m))} />
@@ -1660,6 +1855,131 @@ Include concentrations when found. List top 3–5 actives.`
     const photoCount = Object.values(angles).filter(Boolean).length;
     const blocked = quality && !quality.checking && quality.score < 40;
     const warned  = quality && !quality.checking && quality.score >= 40 && quality.score < 70;
+
+    // ── Hair multi-angle upload ─────────────────────────────────────
+    if (appTab === "hair") {
+      const ZONES = [
+        { key:"crown",       label:"Crown",        required:true,  guide:"📷 Overhead", tip:"Hold camera directly above head, pointing down" },
+        { key:"hairline",    label:"Hairline",     required:false, guide:"📷 Front",    tip:"Face camera straight on, showing forehead" },
+        { key:"leftTemple",  label:"Left Temple",  required:false, guide:"📷 Left",     tip:"Turn head right, photograph left temporal area" },
+        { key:"rightTemple", label:"Right Temple", required:false, guide:"📷 Right",    tip:"Turn head left, photograph right temporal area" },
+      ];
+      const capturedCount = Object.values(hairAngles).filter(Boolean).length;
+      return (
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"24px 0 64px", width:"100%", maxWidth:520 }}>
+          <div style={{ fontFamily:FF, fontSize:22, fontWeight:300, color:TX, margin:"0 0 4px", fontStyle:"italic", alignSelf:"flex-start" }}>Hair & Scalp Analysis</div>
+          <div style={{ fontFamily:FS, fontSize:13, color:MU, marginBottom:20, lineHeight:1.5, alignSelf:"flex-start" }}>Upload up to 4 angles for a comprehensive assessment. Crown is required — each additional angle improves accuracy.</div>
+
+          {/* Zone grid */}
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, width:"100%", marginBottom:20 }}>
+            {ZONES.map(z => {
+              const photo = hairAngles[z.key];
+              return (
+                <div key={z.key} onClick={() => document.getElementById(`hair_${z.key}`).click()}
+                  style={{ borderRadius:12, overflow:"hidden", cursor:"pointer", position:"relative",
+                    border: photo ? `1px solid ${BR}` : z.required ? `2px dashed ${G}` : `2px dashed ${BR}`,
+                    background: photo ? "transparent" : z.required ? "rgba(44,74,114,.04)" : "white",
+                    minHeight:130 }}>
+                  {photo ? (
+                    <>
+                      <img src={photo} style={{ width:"100%", height:130, objectFit:"cover", display:"block" }} />
+                      <div style={{ position:"absolute", top:0, left:0, right:0, bottom:0, background:"rgba(0,0,0,.3)", display:"flex", alignItems:"flex-end", justifyContent:"space-between", padding:"6px 8px" }}>
+                        <span style={{ fontFamily:FS, fontSize:11, fontWeight:600, color:"white" }}>{z.label}</span>
+                        <span style={{ fontFamily:FS, fontSize:10, color:"rgba(255,255,255,.8)", background:"rgba(0,0,0,.35)", padding:"2px 6px", borderRadius:4 }}>Change</span>
+                      </div>
+                      {z.required && <div style={{ position:"absolute", top:6, right:6, background:G, borderRadius:8, padding:"2px 7px" }}><span style={{ fontFamily:FS, fontSize:9, color:"white", fontWeight:600 }}>✓ Required</span></div>}
+                    </>
+                  ) : (
+                    <div style={{ padding:"16px 12px", textAlign:"center", height:"100%", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", gap:6 }}>
+                      <div style={{ fontSize:22, opacity:.5 }}>{z.guide}</div>
+                      <div style={{ fontFamily:FS, fontSize:12, fontWeight:600, color: z.required ? G : MU }}>{z.label}{z.required ? " *" : ""}</div>
+                      <div style={{ fontFamily:FS, fontSize:10, color:DM, lineHeight:1.4 }}>{z.tip}</div>
+                    </div>
+                  )}
+                  <input id={`hair_${z.key}`} type="file" accept="image/*" style={{ display:"none" }}
+                    onChange={e => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setHairAngles(a=>({...a,[z.key]:ev.target.result})); r.readAsDataURL(f); }} />
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Progress indicator */}
+          {capturedCount > 0 && (
+            <div style={{ width:"100%", marginBottom:16 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:5 }}>
+                <span style={{ fontFamily:FS, fontSize:11, color:MU }}>{capturedCount} of 4 angles captured</span>
+                <span style={{ fontFamily:FS, fontSize:11, color:G, fontWeight:500 }}>{capturedCount === 1 ? "Good" : capturedCount === 2 ? "Better" : capturedCount === 3 ? "Great" : "Best accuracy"}</span>
+              </div>
+              <div style={{ height:4, borderRadius:2, background:"rgba(44,74,114,.12)" }}>
+                <div style={{ height:4, borderRadius:2, background:G, width:`${capturedCount*25}%`, transition:"width .3s ease" }} />
+              </div>
+            </div>
+          )}
+
+          {/* Context field */}
+          <div style={{ width:"100%", marginBottom:16 }}>
+            <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:6 }}>Additional context <span style={{ color:DM, textTransform:"none", letterSpacing:0 }}>(optional — improves accuracy)</span></div>
+            <input type="text" value={monoContext} onChange={e=>setMonoContext(e.target.value)}
+              placeholder="e.g. on GLP-1 medication, thinning at crown for 2 years, post-partum…"
+              style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:`1px solid ${BR}`, background:"white", fontFamily:FS, fontSize:13, color:TX, outline:"none", boxSizing:"border-box" }} />
+          </div>
+
+          {error && (
+            <div style={{ width:"100%", padding:"11px 14px", borderRadius:8, background:"rgba(185,28,28,.08)",
+              border:"1px solid rgba(185,28,28,.25)", marginBottom:14, fontFamily:FS, fontSize:13, color:"#B91C1C" }}>
+              {error}
+            </div>
+          )}
+          <button onClick={analyzeHairOrSkin} disabled={!hairAngles.crown}
+            style={{ width:"100%", padding:"15px", borderRadius:12, border:"none",
+              background: hairAngles.crown ? `linear-gradient(130deg,#1A2B4A,${G})` : "rgba(44,74,114,.12)",
+              fontFamily:FF, fontSize:15, fontStyle:"italic", color: hairAngles.crown ? "white" : DM,
+              cursor: hairAngles.crown ? "pointer" : "default", letterSpacing:"0.06em", marginBottom:12 }}>
+            {hairAngles.crown ? `Analyse ${capturedCount} ${capturedCount===1?"angle":"angles"} →` : "Upload crown photo to begin"}
+          </button>
+          <div style={{ fontFamily:FS, fontSize:11, color:DM, textAlign:"center", lineHeight:1.6 }}>Educational assessment only · Not a medical diagnosis · Consult a specialist</div>
+        </div>
+      );
+    }
+
+    // ── Skin upload (single photo) ──────────────────────────────────
+    if (appTab === "skin") {
+      return (
+        <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"24px 0 64px", width:"100%", maxWidth:520 }}>
+          <div style={{ fontFamily:FF, fontSize:22, fontWeight:300, color:TX, margin:"0 0 4px", fontStyle:"italic", alignSelf:"flex-start" }}>Skin Check</div>
+          <div style={{ fontFamily:FS, fontSize:13, color:MU, marginBottom:16, lineHeight:1.5, alignSelf:"flex-start" }}>A clear close-up in natural light gives the best results.</div>
+          <div onClick={() => document.getElementById("skinFileInput").click()}
+            style={{ width:"100%", borderRadius:12, background:"white", border: monoPreview ? `1px solid ${BR}` : `2px dashed ${BR}`, overflow:"hidden", marginBottom:16, cursor:"pointer" }}>
+            {monoPreview
+              ? <div style={{ position:"relative" }}><img src={monoPreview} style={{ width:"100%", display:"block", maxHeight:280, objectFit:"cover" }}/><div style={{ position:"absolute", bottom:8, right:8 }}><span style={{ fontFamily:FS, fontSize:11, background:"rgba(0,0,0,.55)", color:"white", padding:"3px 8px", borderRadius:6 }}>Tap to change</span></div></div>
+              : <div style={{ padding:"40px 20px", textAlign:"center" }}><div style={{ fontSize:36, marginBottom:10, opacity:.35 }}>📷</div><div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:MU }}>Upload photo</div><div style={{ fontFamily:FS, fontSize:12, color:DM, marginTop:4 }}>Fill the frame with the area of concern</div></div>
+            }
+          </div>
+          <input id="skinFileInput" type="file" accept="image/*" style={{ display:"none" }} onChange={e => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setMonoPreview(ev.target.result); r.readAsDataURL(f); }} />
+          <div style={{ width:"100%", marginBottom:16 }}>
+            <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:6 }}>What concerns you? <span style={{ color:DM, textTransform:"none", letterSpacing:0 }}>(optional)</span></div>
+            <input type="text" value={monoContext} onChange={e=>setMonoContext(e.target.value)}
+              placeholder="e.g. yellow bump on eyelid, red patch on arm…"
+              style={{ width:"100%", padding:"11px 14px", borderRadius:10, border:`1px solid ${BR}`, background:"white", fontFamily:FS, fontSize:13, color:TX, outline:"none", boxSizing:"border-box" }} />
+          </div>
+          {error && (
+            <div style={{ width:"100%", padding:"11px 14px", borderRadius:8, background:"rgba(185,28,28,.08)",
+              border:"1px solid rgba(185,28,28,.25)", marginBottom:14, fontFamily:FS, fontSize:13, color:"#B91C1C" }}>
+              {error}
+            </div>
+          )}
+          <button onClick={analyzeHairOrSkin} disabled={!monoPreview}
+            style={{ width:"100%", padding:"15px", borderRadius:12, border:"none",
+              background: monoPreview ? `linear-gradient(130deg,#1A2B4A,${G})` : "rgba(44,74,114,.12)",
+              fontFamily:FF, fontSize:15, fontStyle:"italic", color: monoPreview ? "white" : DM,
+              cursor: monoPreview ? "pointer" : "default", letterSpacing:"0.06em", marginBottom:12 }}>
+            Analyse →
+          </button>
+          <div style={{ fontFamily:FS, fontSize:11, color:DM, textAlign:"center", lineHeight:1.6 }}>Educational assessment only · Not a medical diagnosis</div>
+        </div>
+      );
+    }
+
     return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"40px 0 64px" }}>
       {/* Return to last analysis for existing users */}
@@ -1752,10 +2072,19 @@ Include concentrations when found. List top 3–5 actives.`
   );};
 
   /* ── ANALYZING ──────────────────────────────────────────────────── */
-  const renderAnalyzing = () => (
+  const renderAnalyzing = () => {
+    const analyzePreview = (hairPhase==="analyzing"||appTab==="hair") ? hairAngles?.crown
+      : (skinPhase==="analyzing"||appTab==="skin") ? monoPreview
+      : angles?.front?.preview;
+    const analyzeItems = (hairPhase==="analyzing"||appTab==="hair")
+      ? ["Crown density","Hairline recession","Temple coverage","Scalp health","Miniaturisation signs","Distribution pattern"]
+      : (skinPhase==="analyzing"||appTab==="skin")
+      ? ["Texture & pigmentation","Border characteristics","Morphological features","Colour variation","Inflammatory markers","Clinical indicators"]
+      : ANALYZING_ITEMS;
+    return (
     <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"52px 0" }}>
       <div style={{ position:"relative", borderRadius:16, overflow:"hidden", maxWidth:300, width:"100%", marginBottom:28 }}>
-        <img src={angles?.front?.preview} alt="Analysing" style={{ width:"100%", display:"block", filter:"brightness(.45)" }} />
+        <img src={analyzePreview} alt="Analysing" style={{ width:"100%", display:"block", filter:"brightness(.45)" }} />
         {/* Scan line */}
         <div style={{ position:"absolute", left:0, right:0, height:2, background:`linear-gradient(90deg,transparent,${G},transparent)`, boxShadow:`0 0 14px ${G}`, animation:"scan 2.6s ease-in-out infinite" }} />
         {/* Text overlay — floated over photo with gradient backing */}
@@ -1799,9 +2128,16 @@ Include concentrations when found. List top 3–5 actives.`
           {/* Cycling message — final message gets special treatment */}
           <div key={msgIdx} style={{ fontFamily:FS, fontSize:15, color:"rgba(255,255,255,.88)",
             lineHeight:1.7, animation:"up 0.55s ease both" }}>
-            {msgIdx === ANALYSIS_MESSAGES.length - 1
-              ? <span style={{ display:"block", textAlign:"left" }}>Compiling your<br/><span style={{ fontFamily:FF, fontSize:19, fontWeight:600, fontStyle:"italic", color:"rgba(255,255,255,1)", letterSpacing:"0.04em", display:"block", marginTop:2, textAlign:"center" }}>Skin Roadmap…</span></span>
-              : ANALYSIS_MESSAGES[msgIdx]}
+            {(() => {
+              const isHairMode = hairPhase==="analyzing" || appTab==="hair";
+              const isSkinMode = skinPhase==="analyzing" || appTab==="skin";
+              const activeM    = isHairMode ? HAIR_MSGS : isSkinMode ? SKIN_MSGS : ANALYSIS_MESSAGES;
+              if (isHairMode || isSkinMode) return activeM[msgIdx] || "";
+              // Face mode — special final message
+              return msgIdx === ANALYSIS_MESSAGES.length - 1
+                ? <span style={{ display:"block", textAlign:"left" }}>Compiling your<br/><span style={{ fontFamily:FF, fontSize:19, fontWeight:600, fontStyle:"italic", color:"rgba(255,255,255,1)", letterSpacing:"0.04em", display:"block", marginTop:2, textAlign:"center" }}>Skin Roadmap…</span></span>
+                : ANALYSIS_MESSAGES[msgIdx];
+            })()}
           </div>
         </div>
       </div>
@@ -1810,7 +2146,7 @@ Include concentrations when found. List top 3–5 actives.`
         Analysis typically takes 30–60 seconds
       </div>
       <div style={{ width:"100%", maxWidth:300 }}>
-        {ANALYZING_ITEMS.map((item, i) => (
+        {analyzeItems.map((item, i) => (
           <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 0", borderBottom:`1px solid ${BR}`, opacity:step>i?1:0.2, transition:"opacity .5s ease" }}>
             <div style={{ width:7, height:7, borderRadius:"50%", background:step>i?G:DM, flexShrink:0, transition:"background .4s" }} />
             <span style={{ fontFamily:FS, fontSize:13, color:step>i?TX:DM, transition:"color .4s" }}>{item}</span>
@@ -1819,9 +2155,641 @@ Include concentrations when found. List top 3–5 actives.`
         ))}
       </div>
     </div>
-  );
+    );
+  };
 
   /* ── RESULTS (tabbed) ───────────────────────────────────────────── */
+  /* ── Hair Progress Dashboard ──────────────────────────────────────── */
+  const renderHairProgress = () => {
+    const scans   = [...hairHistory].sort((a,b) => new Date(a.date)-new Date(b.date));
+    const oldest  = scans[0];
+    const latest  = scans[scans.length-1];
+    const hasGlp1 = (profile?.medications||[]).some(m => m.includes("GLP-1"));
+    const count   = scans.length;
+
+    // ── MaxGraft candidacy ──────────────────────────────────────────
+    const candidacy = (() => {
+      if (!latest) return null;
+      const score  = latest.result?.densityScore;
+      const finding= (latest.result?.findings||[])[0];
+      const cond   = (finding?.condition||"").toLowerCase();
+      const urg    = finding?.urgency;
+      if (!score) return null;
+      if (score < 45 || urg === "emergency" || cond.includes("v") || cond.includes("vi") || cond.includes("vii"))
+        return { label:"Surgical Candidate", sub:"FUE / MaxGraft may be appropriate — specialist consultation recommended", color:"#7C2D12", bg:"rgba(124,45,18,.08)", br:"rgba(124,45,18,.3)", icon:"⚕" };
+      if (score < 65 || urg === "urgent")
+        return { label:"Potential Candidate", sub:"Consider a specialist consultation to evaluate suitability for surgical restoration", color:"#C2410C", bg:"rgba(194,65,12,.08)", br:"rgba(194,65,12,.3)", icon:"◷" };
+      return { label:"Not Yet a Surgical Candidate", sub:"Focus on prevention and medical management — surgical evaluation when loss progresses further", color:"#14532D", bg:"rgba(21,128,61,.08)", br:"rgba(21,128,61,.3)", icon:"✓" };
+    })();
+
+    // ── Empty state ────────────────────────────────────────────────
+    if (count === 0) return (
+      <div style={{ textAlign:"center", padding:"48px 20px" }}>
+        <div style={{ fontSize:40, marginBottom:16, opacity:.3 }}>◈</div>
+        <div style={{ fontFamily:FF, fontSize:20, fontStyle:"italic", color:MU, marginBottom:8 }}>No scans yet</div>
+        <div style={{ fontFamily:FS, fontSize:13, color:DM, lineHeight:1.6, marginBottom:24 }}>Complete your first hair analysis to start tracking density over time.</div>
+        <button onClick={() => setHairTab("analyse")}
+          style={{ padding:"12px 28px", borderRadius:10, border:"none",
+            background:`linear-gradient(130deg,#1A2B4A,${G})`,
+            fontFamily:FF, fontSize:15, fontStyle:"italic", color:"white", cursor:"pointer" }}>
+          Start First Scan →
+        </button>
+      </div>
+    );
+
+    // ── Single scan state ──────────────────────────────────────────
+    if (count === 1) return (
+      <div style={{ padding:"8px 0 32px" }}>
+        {hasGlp1 && renderGlp1Banner()}
+        <div style={{ ...card({ padding:"16px", marginBottom:14 }) }}>
+          <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+            <img src={latest.thumb} style={{ width:52, height:52, borderRadius:8, objectFit:"cover", flexShrink:0 }}/>
+            <div style={{ flex:1 }}>
+              <div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:TX, marginBottom:4 }}>
+                {(latest.result?.findings||[])[0]?.condition || "Hair Analysis"}
+              </div>
+              <div style={{ display:"flex", alignItems:"baseline", gap:6 }}>
+                <span style={{ fontFamily:FF, fontSize:28, color:G, lineHeight:1 }}>{latest.result?.densityScore || "—"}</span>
+                <span style={{ fontFamily:FS, fontSize:11, color:MU }}>density score</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        {candidacy && renderCandidacyBadge(candidacy)}
+        <div style={{ ...card({ padding:"20px", textAlign:"center", background:"rgba(44,74,114,.03)", border:`2px dashed ${BR}` }) }}>
+          <div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:MU, marginBottom:6 }}>Complete a second scan to unlock comparisons</div>
+          <div style={{ fontFamily:FS, fontSize:12, color:DM, marginBottom:16, lineHeight:1.6 }}>Trend charts, before/after comparison, and progress tracking become available with 2 or more scans.</div>
+          <button onClick={() => setHairTab("analyse")}
+            style={{ padding:"10px 22px", borderRadius:10, border:"none",
+              background:`linear-gradient(130deg,#1A2B4A,${G})`,
+              fontFamily:FF, fontSize:14, fontStyle:"italic", color:"white", cursor:"pointer" }}>
+            Scan Again →
+          </button>
+        </div>
+      </div>
+    );
+
+    // ── Full dashboard (2+ scans) ──────────────────────────────────
+    const chartData = scans.map(s => ({
+      date: new Date(s.date).toLocaleDateString("en-US", { month:"short", day:"numeric" }),
+      score: s.result?.densityScore || 0,
+    }));
+    const improvement = latest.result?.densityScore && oldest.result?.densityScore
+      ? latest.result.densityScore - oldest.result.densityScore : null;
+
+    return (
+      <div style={{ padding:"8px 0 32px" }}>
+        {hasGlp1 && renderGlp1Banner()}
+
+        {/* Summary row */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:10, marginBottom:14 }}>
+          {[
+            { label:"Latest Score",  val: latest.result?.densityScore ?? "—", color: G },
+            { label:"First Score",   val: oldest.result?.densityScore ?? "—", color: MU },
+            { label: improvement !== null ? (improvement >= 0 ? "▲ Gained" : "▼ Lost") : "Change",
+              val: improvement !== null ? `${Math.abs(improvement)} pts` : "—",
+              color: improvement > 0 ? "#14532D" : improvement < 0 ? "#B91C1C" : MU },
+          ].map(({ label, val, color }) => (
+            <div key={label} style={{ ...card({ padding:"12px", textAlign:"center" }) }}>
+              <div style={{ fontFamily:FF, fontSize:24, color, lineHeight:1, marginBottom:4 }}>{val}</div>
+              <div style={{ fontFamily:FS, fontSize:10, color:DM, letterSpacing:"0.08em", textTransform:"uppercase" }}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Density trend chart */}
+        <div style={{ ...card({ padding:"16px", marginBottom:14 }) }}>
+          <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:MU, textTransform:"uppercase", marginBottom:14 }}>Density Score Trend</div>
+          <div style={{ width:"100%", height:160 }}>
+            <ResponsiveContainer width="100%" height={160}>
+              <LineChart data={chartData} margin={{ top:8, right:8, bottom:0, left:-20 }}>
+                <XAxis dataKey="date" tick={{ fontFamily:FS, fontSize:10, fill:MU }} axisLine={false} tickLine={false}/>
+                <YAxis domain={[0,100]} tick={{ fontFamily:FS, fontSize:10, fill:MU }} axisLine={false} tickLine={false}/>
+                <Tooltip contentStyle={{ fontFamily:FS, fontSize:12, borderRadius:8, border:`1px solid ${BR}` }} formatter={(v) => [`${v}`, "Density Score"]}/>
+                <ReferenceLine y={85} stroke="rgba(21,128,61,.3)" strokeDasharray="4 3" label={{ value:"Normal", position:"right", fontFamily:FS, fontSize:9, fill:"#14532D" }}/>
+                <Line type="monotone" dataKey="score" stroke={G} strokeWidth={2.5} dot={{ fill:G, r:4, strokeWidth:0 }} activeDot={{ r:6 }}/>
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Before / After slider */}
+        {oldest.thumb && latest.thumb && oldest.id !== latest.id && (
+          <div style={{ ...card({ padding:0, overflow:"hidden", marginBottom:14 }) }}>
+            <div style={{ padding:"12px 16px 10px" }}>
+              <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:MU, textTransform:"uppercase" }}>Before / After</div>
+              <div style={{ fontFamily:FS, fontSize:11, color:DM, marginTop:3 }}>Drag to compare · {new Date(oldest.date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})} → {new Date(latest.date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}</div>
+            </div>
+            <div
+              style={{ position:"relative", height:240, cursor:"ew-resize", userSelect:"none", touchAction:"none" }}
+              onMouseMove={e => { const r=e.currentTarget.getBoundingClientRect(); setSliderPos(Math.max(5,Math.min(95,((e.clientX-r.left)/r.width)*100))); }}
+              onTouchMove={e => { const r=e.currentTarget.getBoundingClientRect(); const t=e.touches[0]; setSliderPos(Math.max(5,Math.min(95,((t.clientX-r.left)/r.width)*100))); }}>
+              {/* Before (left) */}
+              <img src={oldest.compare || oldest.thumb} alt="before"
+                style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}/>
+              {/* After (right, clipped) */}
+              <div style={{ position:"absolute", inset:0, overflow:"hidden", clipPath:`inset(0 0 0 ${sliderPos}%)` }}>
+                <img src={latest.compare || latest.thumb} alt="after"
+                  style={{ position:"absolute", inset:0, width:"100%", height:"100%", objectFit:"cover" }}/>
+              </div>
+              {/* Divider line */}
+              <div style={{ position:"absolute", top:0, bottom:0, left:`${sliderPos}%`, width:2, background:"white", boxShadow:"0 0 8px rgba(0,0,0,.4)", transform:"translateX(-50%)" }}/>
+              {/* Handle */}
+              <div style={{ position:"absolute", top:"50%", left:`${sliderPos}%`, transform:"translate(-50%,-50%)",
+                width:36, height:36, borderRadius:"50%", background:"white",
+                boxShadow:"0 2px 8px rgba(0,0,0,.3)", display:"flex", alignItems:"center", justifyContent:"center" }}>
+                <span style={{ fontFamily:FS, fontSize:12, color:G, letterSpacing:"-2px" }}>‹›</span>
+              </div>
+              {/* Labels */}
+              <div style={{ position:"absolute", top:8, left:8, fontFamily:FS, fontSize:10, fontWeight:600,
+                background:"rgba(0,0,0,.55)", color:"white", padding:"3px 8px", borderRadius:6 }}>Before</div>
+              <div style={{ position:"absolute", top:8, right:8, fontFamily:FS, fontSize:10, fontWeight:600,
+                background:"rgba(0,0,0,.55)", color:"white", padding:"3px 8px", borderRadius:6 }}>After</div>
+            </div>
+          </div>
+        )}
+
+        {/* MaxGraft candidacy */}
+        {candidacy && renderCandidacyBadge(candidacy)}
+
+        {/* Scan history */}
+        <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:MU, textTransform:"uppercase", marginBottom:10 }}>Scan History</div>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {[...scans].reverse().map((s, i) => {
+            const sc   = s.result?.densityScore;
+            const prev = i < scans.length-1 ? scans[scans.length-2-i]?.result?.densityScore : null;
+            const diff = sc && prev ? sc - prev : null;
+            return (
+              <div key={s.id} onClick={() => { setHairResult(s.result); setHairAngles({crown:s.thumb,hairline:null,leftTemple:null,rightTemple:null}); setHairPhase("results"); setHairTab("analyse"); }}
+                style={{ ...card({ padding:0, overflow:"hidden", cursor:"pointer" }) }}>
+                <div style={{ display:"flex", gap:12, padding:"12px 16px", alignItems:"center" }}>
+                  <img src={s.thumb} style={{ width:48, height:48, borderRadius:8, objectFit:"cover", flexShrink:0 }}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontFamily:FF, fontSize:14, fontStyle:"italic", color:TX, marginBottom:3 }}>
+                      {(s.result?.findings||[])[0]?.condition || "Hair Analysis"}
+                    </div>
+                    <div style={{ fontFamily:FS, fontSize:11, color:MU }}>
+                      {new Date(s.date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})}
+                    </div>
+                  </div>
+                  <div style={{ textAlign:"right", flexShrink:0 }}>
+                    <div style={{ fontFamily:FF, fontSize:22, color:G, lineHeight:1 }}>{sc ?? "—"}</div>
+                    {diff !== null && (
+                      <div style={{ fontFamily:FS, fontSize:10, color: diff>0?"#14532D":"#B91C1C", marginTop:2 }}>
+                        {diff>0?`▲+${diff}`:`▼${diff}`}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGlp1Banner = () => (
+    <div style={{ padding:"12px 16px", borderRadius:12, background:"rgba(124,45,18,.06)",
+      border:"1px solid rgba(124,45,18,.25)", marginBottom:14 }}>
+      <div style={{ fontFamily:FS, fontSize:10, fontWeight:600, color:"#7C2D12", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:6 }}>⚠ GLP-1 Hair Loss Protocol</div>
+      <div style={{ fontFamily:FS, fontSize:12, color:"#7F1D1D", lineHeight:1.65 }}>
+        GLP-1 medications can trigger temporary hair shedding — typically peaking at 3–4 months after starting. Most patients see recovery at 6+ months. Prevention-first protocols (exosomes, peptides, topicals) are recommended before considering surgical options.
+      </div>
+    </div>
+  );
+
+  const renderCandidacyBadge = (c) => (
+    <div style={{ padding:"14px 16px", borderRadius:12, background:c.bg, border:`1px solid ${c.br}`, marginBottom:14 }}>
+      <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+        <span style={{ fontSize:18, color:c.color }}>{c.icon}</span>
+        <div>
+          <div style={{ fontFamily:FS, fontSize:11, fontWeight:600, color:c.color, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:4 }}>MaxGraft / FUE Candidacy</div>
+          <div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:c.color, marginBottom:4 }}>{c.label}</div>
+          <div style={{ fontFamily:FS, fontSize:12, color:c.color, opacity:.85, lineHeight:1.55 }}>{c.sub}</div>
+        </div>
+      </div>
+    </div>
+  );
+
+  /* ── Hair Intake Form ─────────────────────────────────────────────── */
+  const renderHairIntake = () => {
+    const upd = (k, v) => setHairIntake(p => ({ ...p, [k]:v }));
+    const toggleTx = (t) => setHairIntake(p => ({
+      ...p,
+      prevTreatments: p.prevTreatments.includes(t)
+        ? p.prevTreatments.filter(x => x !== t)
+        : [...p.prevTreatments, t]
+    }));
+
+    const saveAndContinue = async () => {
+      const hp = { ...hairIntake, completedAt: new Date().toISOString() };
+      setHairProfile(hp);
+      await storage.set("glow:hairProfile", JSON.stringify(hp));
+      setHairIntakeStep(0);
+    };
+
+    const SEL = (val, cur, onSel, label) => (
+      <button onClick={() => onSel(val)}
+        style={{ padding:"9px 14px", borderRadius:10, fontFamily:FS, fontSize:13, cursor:"pointer",
+          background: cur===val ? G : "white",
+          border: `1px solid ${cur===val ? G : BR}`,
+          color: cur===val ? "white" : TX,
+          transition:"all .15s" }}>
+        {label}
+      </button>
+    );
+
+    const MULTI = (val, arr, onTog, label) => (
+      <button onClick={() => onTog(val)}
+        style={{ padding:"8px 13px", borderRadius:10, fontFamily:FS, fontSize:13, cursor:"pointer",
+          background: arr.includes(val) ? "rgba(44,74,114,.1)" : "white",
+          border: `1px solid ${arr.includes(val) ? G : BR}`,
+          color: arr.includes(val) ? G : TX,
+          transition:"all .15s" }}>
+        {label}
+      </button>
+    );
+
+    return (
+      <div style={{ display:"flex", flexDirection:"column", padding:"24px 0 64px", width:"100%", maxWidth:520 }}>
+        {/* Progress dots */}
+        <div style={{ display:"flex", justifyContent:"center", gap:8, marginBottom:28 }}>
+          {[0,1,2].map(i => (
+            <div key={i} style={{ width: i===hairIntakeStep?24:8, height:8, borderRadius:4,
+              background: i<=hairIntakeStep ? G : BR, transition:"all .3s" }} />
+          ))}
+        </div>
+
+        {hairIntakeStep === 0 && (<>
+          <div style={{ fontFamily:FF, fontSize:22, fontWeight:300, color:TX, marginBottom:6, fontStyle:"italic" }}>About You</div>
+          <div style={{ fontFamily:FS, fontSize:13, color:MU, marginBottom:24, lineHeight:1.5 }}>
+            This helps us calibrate your density score against what's typical for your profile.
+          </div>
+
+          <div style={{ fontFamily:FS, fontSize:11, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:10 }}>Biological sex</div>
+          <div style={{ display:"flex", gap:10, marginBottom:24 }}>
+            {SEL("male",   hairIntake.sex, v=>upd("sex",v), "Male")}
+            {SEL("female", hairIntake.sex, v=>upd("sex",v), "Female")}
+          </div>
+
+          <div style={{ fontFamily:FS, fontSize:11, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:10 }}>Family history of hair loss</div>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:24 }}>
+            {SEL("none",  hairIntake.familyHistory, v=>upd("familyHistory",v), "None")}
+            {SEL("one",   hairIntake.familyHistory, v=>upd("familyHistory",v), "One parent")}
+            {SEL("both",  hairIntake.familyHistory, v=>upd("familyHistory",v), "Both parents")}
+            {SEL("unsure",hairIntake.familyHistory, v=>upd("familyHistory",v), "Unsure")}
+          </div>
+
+          <button onClick={() => setHairIntakeStep(1)} disabled={!hairIntake.sex || !hairIntake.familyHistory}
+            style={{ padding:"15px", borderRadius:12, border:"none", cursor: hairIntake.sex&&hairIntake.familyHistory?"pointer":"default",
+              background: hairIntake.sex&&hairIntake.familyHistory ? `linear-gradient(130deg,#1A2B4A,${G})` : "rgba(44,74,114,.12)",
+              fontFamily:FF, fontSize:15, fontStyle:"italic",
+              color: hairIntake.sex&&hairIntake.familyHistory ? "white" : DM, letterSpacing:"0.06em" }}>
+            Next →
+          </button>
+        </>)}
+
+        {hairIntakeStep === 1 && (<>
+          <div style={{ fontFamily:FF, fontSize:22, fontWeight:300, color:TX, marginBottom:6, fontStyle:"italic" }}>Your Hair History</div>
+          <div style={{ fontFamily:FS, fontSize:13, color:MU, marginBottom:24, lineHeight:1.5 }}>
+            Understanding how long you've noticed changes helps us assess progression rate.
+          </div>
+
+          <div style={{ fontFamily:FS, fontSize:11, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:10 }}>How long have you noticed thinning?</div>
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:24 }}>
+            {SEL("recent","",()=>{},"")}
+            {SEL("recent", hairIntake.duration, v=>upd("duration",v), "Just started")}
+            {SEL("1-2",    hairIntake.duration, v=>upd("duration",v), "1–2 years")}
+            {SEL("3-5",    hairIntake.duration, v=>upd("duration",v), "3–5 years")}
+            {SEL("5+",     hairIntake.duration, v=>upd("duration",v), "5+ years")}
+          </div>
+
+          <div style={{ display:"flex", gap:10, marginTop:4 }}>
+            <button onClick={() => setHairIntakeStep(0)}
+              style={{ flex:1, padding:"13px", borderRadius:12, border:`1px solid ${BR}`, background:"white", fontFamily:FS, fontSize:13, color:MU, cursor:"pointer" }}>← Back</button>
+            <button onClick={() => setHairIntakeStep(2)} disabled={!hairIntake.duration}
+              style={{ flex:2, padding:"13px", borderRadius:12, border:"none", cursor:"pointer",
+                background: hairIntake.duration ? `linear-gradient(130deg,#1A2B4A,${G})` : "rgba(44,74,114,.12)",
+                fontFamily:FF, fontSize:15, fontStyle:"italic",
+                color: hairIntake.duration ? "white" : DM, letterSpacing:"0.06em" }}>
+              Next →
+            </button>
+          </div>
+        </>)}
+
+        {hairIntakeStep === 2 && (<>
+          <div style={{ fontFamily:FF, fontSize:22, fontWeight:300, color:TX, marginBottom:6, fontStyle:"italic" }}>Previous Treatments</div>
+          <div style={{ fontFamily:FS, fontSize:13, color:MU, marginBottom:24, lineHeight:1.5 }}>
+            Select all that apply. This helps us recommend what you haven't tried yet.
+          </div>
+
+          <div style={{ display:"flex", gap:10, flexWrap:"wrap", marginBottom:28 }}>
+            {["None","Minoxidil","Finasteride / Dutasteride","PRP","Exosomes","LLLT / Laser cap","Hair transplant","Other"].map(t => (
+              <div key={t}>{MULTI(t, hairIntake.prevTreatments, toggleTx, t)}</div>
+            ))}
+          </div>
+
+          <div style={{ ...card({ padding:"14px 16px", marginBottom:24, background:"rgba(44,74,114,.04)" }) }}>
+            <div style={{ fontFamily:FS, fontSize:11, color:G, letterSpacing:"0.08em", textTransform:"uppercase", marginBottom:8 }}>Your Profile Summary</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:5 }}>
+              {[
+                ["Sex", hairIntake.sex === "male" ? "Male" : "Female"],
+                ["Family history", hairIntake.familyHistory === "both" ? "Both parents" : hairIntake.familyHistory === "one" ? "One parent" : hairIntake.familyHistory === "unsure" ? "Unsure" : "None"],
+                ["Thinning duration", hairIntake.duration === "recent" ? "Just started" : hairIntake.duration === "1-2" ? "1–2 years" : hairIntake.duration === "3-5" ? "3–5 years" : "5+ years"],
+                ["Hair goals", (profile?.hairGoals||[]).length ? profile.hairGoals.join(", ") : "None set in profile"],
+              ].map(([label, val]) => (
+                <div key={label} style={{ display:"flex", justifyContent:"space-between" }}>
+                  <span style={{ fontFamily:FS, fontSize:12, color:MU }}>{label}</span>
+                  <span style={{ fontFamily:FS, fontSize:12, color:TX, fontWeight:500 }}>{val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display:"flex", gap:10 }}>
+            <button onClick={() => setHairIntakeStep(1)}
+              style={{ flex:1, padding:"13px", borderRadius:12, border:`1px solid ${BR}`, background:"white", fontFamily:FS, fontSize:13, color:MU, cursor:"pointer" }}>← Back</button>
+            <button onClick={saveAndContinue}
+              style={{ flex:2, padding:"13px", borderRadius:12, border:"none", cursor:"pointer",
+                background:`linear-gradient(130deg,#1A2B4A,${G})`,
+                fontFamily:FF, fontSize:15, fontStyle:"italic", color:"white", letterSpacing:"0.06em" }}>
+              Start Analysis →
+            </button>
+          </div>
+        </>)}
+      </div>
+    );
+  };
+
+  /* ── Hair Results Renderer ────────────────────────────────────────── */
+  const renderHairResults = () => {
+    if (!hairResult) return null;
+    const findings    = hairResult.findings || [];
+    const densityScore = hairResult.densityScore || null;
+    const scoreColor  = !densityScore ? MU
+      : densityScore >= 85 ? "#14532D"
+      : densityScore >= 70 ? "#7C2D12"
+      : densityScore >= 55 ? "#C2410C"
+      : "#B91C1C";
+    const scoreLabel  = !densityScore ? "—"
+      : densityScore >= 85 ? "Normal"
+      : densityScore >= 70 ? "Mildly Reduced"
+      : densityScore >= 55 ? "Moderately Reduced"
+      : densityScore >= 40 ? "Significantly Reduced"
+      : "Severe Loss";
+    const worstU   = findings.reduce((w,f)=>{const o=["routine","soon","urgent","emergency"];return o.indexOf(f.urgency)>o.indexOf(w)?f.urgency:w},"routine");
+    const topUrg   = SEV_ORDER[worstU] ? { label:["No Concern","Early Intervention","Active Restoration","Consult Today"][["routine","soon","urgent","emergency"].indexOf(worstU)], tx:["#14532D","#7C2D12","#C2410C","#B91C1C"][["routine","soon","urgent","emergency"].indexOf(worstU)], bg:["rgba(21,128,61,.1)","rgba(146,64,14,.1)","rgba(194,65,12,.1)","rgba(185,28,28,.1)"][["routine","soon","urgent","emergency"].indexOf(worstU)], br:["rgba(21,128,61,.3)","rgba(146,64,14,.3)","rgba(194,65,12,.3)","rgba(185,28,28,.3)"][["routine","soon","urgent","emergency"].indexOf(worstU)] } : {label:"No Concern",tx:"#14532D",bg:"rgba(21,128,61,.1)",br:"rgba(21,128,61,.3)"};
+    const URG_MAP  = {routine:{label:"Preventive",tx:"#14532D",bg:"rgba(21,128,61,.1)",br:"rgba(21,128,61,.3)"},soon:{label:"Early Intervention",tx:"#7C2D12",bg:"rgba(146,64,14,.1)",br:"rgba(146,64,14,.3)"},urgent:{label:"Active Restoration",tx:"#C2410C",bg:"rgba(194,65,12,.1)",br:"rgba(194,65,12,.3)"},emergency:{label:"Consult Today",tx:"#B91C1C",bg:"rgba(185,28,28,.1)",br:"rgba(185,28,28,.3)"}};
+    return (
+      <div style={{ padding:"16px 0 32px" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+          <button onClick={() => { setHairResult(null); setHairAngles({ crown:null, hairline:null, leftTemple:null, rightTemple:null }); setMonoContext(""); setHairPhase("upload"); }} style={{ background:"none", border:"none", fontFamily:FS, fontSize:13, color:MU, cursor:"pointer", padding:0 }}>← New Analysis</button>
+        </div>
+        <div style={{ ...card({ padding:0, overflow:"hidden", marginBottom:14 }) }}>
+          {hairAngles.crown && <img src={hairAngles.crown} style={{ width:"100%", display:"block", maxHeight:240, objectFit:"cover" }}/>}
+          <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <div style={{ fontFamily:FS, fontSize:12, color:MU }}>{findings.length} finding{findings.length!==1?"s":""} identified</div>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 10px", borderRadius:12, background:topUrg.bg, border:`1px solid ${topUrg.br}` }}>
+              <span style={{ fontFamily:FS, fontSize:11, fontWeight:600, color:topUrg.tx }}>{topUrg.label}</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Density Score Card */}
+        {densityScore && (
+          <div style={{ ...card({ padding:"16px", marginBottom:14 }) }}>
+            {secLabel("Hair Density Score")}
+            <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:6 }}>
+              <div style={{ display:"flex", alignItems:"baseline", gap:8 }}>
+                <span style={{ fontFamily:FF, fontSize:52, color:scoreColor, lineHeight:1, fontWeight:300 }}>{densityScore}</span>
+                <div>
+                  <div style={{ fontFamily:FS, fontSize:12, color:scoreColor, fontWeight:600 }}>{scoreLabel}</div>
+                  <div style={{ fontFamily:FS, fontSize:9, color:DM, letterSpacing:"0.1em", textTransform:"uppercase", marginTop:2 }}>out of 100</div>
+                </div>
+              </div>
+              <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:6 }}>
+                {[["Normal","#14532D",85,101],["Mild","#7C2D12",70,85],["Moderate","#C2410C",55,70],["Severe","#B91C1C",0,55]].map(([label,color,min,max]) => {
+                  const active = densityScore >= min && densityScore < max;
+                  return (
+                    <div key={label} style={{ display:"flex", alignItems:"center", gap:5 }}>
+                      <div style={{ width:7, height:7, borderRadius:"50%", background: active ? color : "rgba(0,0,0,.1)" }} />
+                      <span style={{ fontFamily:FS, fontSize:10, color: active ? color : DM, fontWeight: active ? 600 : 400 }}>{label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Progress bar */}
+            <div style={{ marginTop:12, height:4, borderRadius:2, background:"rgba(44,74,114,.1)" }}>
+              <div style={{ height:4, borderRadius:2, background:scoreColor, width:`${densityScore}%`, transition:"width .6s ease", opacity:.8 }} />
+            </div>
+
+            {/* Typical range timeline (when hair profile exists) */}
+            {(() => {
+              if (!hairProfile) return null;
+              const typ = hairTypicalRange(profile?.age, hairProfile.sex, hairProfile.familyHistory, hairProfile.duration);
+              if (!typ) return null;
+              const pos = (v) => `${Math.max(0, Math.min(100, v))}%`;
+              const inRange = densityScore >= typ.lo && densityScore <= typ.hi;
+              const above   = densityScore > typ.hi;
+              const rangeColor = inRange ? "#14532D" : above ? "#14532D" : "#B91C1C";
+              return (
+                <div style={{ marginTop:20, paddingTop:16, borderTop:`1px solid ${BR}` }}>
+                  <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:12 }}>
+                    Compared to Typical Range
+                  </div>
+                  {/* Track */}
+                  <div style={{ position:"relative", height:6, borderRadius:3, background:"rgba(44,74,114,.08)", margin:"18px 0 28px" }}>
+                    {/* Typical range bracket */}
+                    <div style={{ position:"absolute", left:pos(typ.lo), width:`${typ.hi - typ.lo}%`,
+                      height:"100%", background:"rgba(44,74,114,.2)", borderRadius:3 }} />
+                    {/* Score dot */}
+                    <div style={{ position:"absolute", left:pos(densityScore), top:"50%",
+                      transform:"translate(-50%,-50%)", width:14, height:14,
+                      borderRadius:"50%", background:scoreColor, border:"2px solid white",
+                      boxShadow:"0 1px 4px rgba(0,0,0,.2)", zIndex:2 }} />
+                    {/* Bracket labels */}
+                    <div style={{ position:"absolute", top:10, left:pos(typ.lo), transform:"translateX(-50%)", fontFamily:FS, fontSize:10, color:MU }}>{typ.lo}</div>
+                    <div style={{ position:"absolute", top:10, left:pos(typ.hi), transform:"translateX(-50%)", fontFamily:FS, fontSize:10, color:MU }}>{typ.hi}</div>
+                  </div>
+                  {/* Verdict */}
+                  <div style={{ display:"inline-flex", alignItems:"center", gap:6, padding:"4px 12px", borderRadius:12,
+                    background: inRange ? "rgba(21,128,61,.1)" : above ? "rgba(21,128,61,.1)" : "rgba(185,28,28,.1)",
+                    border: `1px solid ${inRange||above ? "rgba(21,128,61,.3)" : "rgba(185,28,28,.3)"}` }}>
+                    <span style={{ fontFamily:FS, fontSize:11, fontWeight:600, color:rangeColor }}>
+                      {above ? "✓ Above typical range for your profile"
+                        : inRange ? "✓ Within typical range for your profile"
+                        : "↓ Below typical range for your profile"}
+                    </span>
+                  </div>
+                  <div style={{ fontFamily:FS, fontSize:10, color:DM, marginTop:8, fontStyle:"italic" }}>
+                    Typical {hairProfile.sex} · {hairProfile.familyHistory === "both" ? "strong" : hairProfile.familyHistory === "one" ? "moderate" : "no"} family history · {profile?.age ? `age ${profile.age}` : ""}
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        )}
+
+        {findings.map((f,i) => {
+          const u = URG_MAP[f.urgency]||URG_MAP.routine;
+          const sel = selectedId===f.id;
+          return (
+            <div key={f.id} onClick={()=>setSelectedId(sel?null:f.id)} style={{ ...card({ padding:0, overflow:"hidden", marginBottom:12, border:sel?`2px solid ${u.tx}`:`1px solid ${BR}` }) }}>
+              <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", gap:10, background:sel?u.bg:"white", cursor:"pointer" }}>
+                <div style={{ width:26, height:26, borderRadius:"50%", background:u.tx, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:FS, fontSize:12, fontWeight:700, color:"white" }}>{i+1}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontFamily:FF, fontSize:17, fontStyle:"italic", color:TX, lineHeight:1.2 }}>{f.condition}</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:3 }}>
+                    <div style={{ display:"inline-flex", padding:"2px 8px", borderRadius:10, background:u.bg, border:`1px solid ${u.br}` }}><span style={{ fontFamily:FS, fontSize:10, fontWeight:600, color:u.tx }}>{u.label}</span></div>
+                    <span style={{ fontFamily:FS, fontSize:10, color:MU }}>{f.confidence} confidence</span>
+                  </div>
+                </div>
+                <span style={{ color:MU, fontSize:14 }}>{sel?"▲":"▼"}</span>
+              </div>
+              {sel && (
+                <div style={{ padding:"14px 16px", borderTop:`1px solid ${BR}` }}>
+                  <p style={{ fontFamily:FS, fontSize:13, color:MU, lineHeight:1.7, margin:"0 0 12px" }}>{f.description}</p>
+                  {f.prognosis && <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(185,28,28,.04)", border:"1px solid rgba(185,28,28,.18)", marginBottom:12 }}><div style={{ fontFamily:FS, fontSize:10, color:"#B91C1C", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:5 }}>Without Treatment</div><p style={{ fontFamily:FS, fontSize:13, color:"#7F1D1D", lineHeight:1.6, margin:0 }}>{f.prognosis}</p></div>}
+                  {f.characteristics?.length>0 && <div style={{ marginBottom:12 }}><div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:8 }}>Observed</div>{f.characteristics.map((c,j)=><div key={j} style={{ display:"flex", gap:7, marginBottom:5 }}><span style={{ color:G, flexShrink:0 }}>◈</span><span style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.5 }}>{c}</span></div>)}</div>}
+                  {f.selfCare?.length>0 && <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(21,128,61,.04)", border:"1px solid rgba(21,128,61,.18)", marginBottom:12 }}><div style={{ fontFamily:FS, fontSize:10, color:"#14532D", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Self-Care</div>{f.selfCare.map((s,j)=><div key={j} style={{ display:"flex", gap:7, marginBottom:5 }}><span style={{ color:"#14532D", flexShrink:0 }}>✓</span><span style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.5 }}>{s}</span></div>)}</div>}
+                  {f.clinicalNote && <p style={{ fontFamily:FS, fontSize:12, color:MU, fontStyle:"italic", margin:"0 0 12px", lineHeight:1.6, padding:"8px 12px", borderRadius:8, background:SURF }}>📋 {f.clinicalNote}</p>}
+                  {f.treatments?.length>0 && (
+                    <div style={{ paddingTop:12, borderTop:`1px solid ${BR}` }}>
+                      <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:G, textTransform:"uppercase", marginBottom:10 }}>Treatment Options</div>
+                      {f.treatments.map((t,j)=>{ const tier=TIER_COLOR[t.tier]||TIER_COLOR.premium; const dt=dtCol(t.downtime); return <div key={j} style={{ padding:"12px 14px", borderRadius:10, background:"rgba(44,74,114,.04)", border:`1px solid rgba(44,74,114,.15)`, marginBottom:8 }}><div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8, marginBottom:6 }}><div style={{ flex:1 }}><div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:TX, lineHeight:1.2 }}>{t.procedure}</div><div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}><span style={{ fontFamily:FS, fontSize:10, padding:"2px 8px", borderRadius:10, background:tier.bg, border:`1px solid ${tier.br}`, color:tier.tx, fontWeight:600 }}>{tier.label}</span>{t.downtime&&<span style={{ fontFamily:FS, fontSize:10, padding:"2px 8px", borderRadius:10, background:dt.bg, border:`1px solid ${dt.br}`, color:dt.tx }}>{t.downtime==="None"?"No downtime":t.downtime}</span>}</div></div>{t.price&&<div style={{ fontFamily:FF, fontSize:15, fontStyle:"italic", color:G, flexShrink:0 }}>{t.price}</div>}</div>{t.description&&<p style={{ fontFamily:FS, fontSize:12, color:MU, lineHeight:1.6, margin:"4px 0 0" }}>{t.description}</p>}{t.why&&<p style={{ fontFamily:FS, fontSize:11, color:G, lineHeight:1.5, margin:"4px 0 0", fontStyle:"italic" }}>Why it helps: {t.why}</p>}</div>})}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <div style={{ padding:"11px 14px", borderRadius:10, background:"rgba(44,74,114,.05)", border:`1px solid rgba(44,74,114,.15)` }}>
+          <p style={{ fontFamily:FS, fontSize:11, color:MU, lineHeight:1.65, margin:0 }}><strong>Educational purposes only.</strong> Not a medical diagnosis. Consult a qualified trichologist or hair restoration specialist.</p>
+        </div>
+      </div>
+    );
+  };
+
+  /* ── Skin Check History ───────────────────────────────────────────── */
+  const renderSkinHistory = () => {
+    const URG_MAP = {routine:{label:"No Concern",tx:"#14532D",bg:"rgba(21,128,61,.1)",br:"rgba(21,128,61,.3)"},soon:{label:"See Doctor Soon",tx:"#7C2D12",bg:"rgba(146,64,14,.1)",br:"rgba(146,64,14,.3)"},urgent:{label:"See Doctor Promptly",tx:"#C2410C",bg:"rgba(194,65,12,.1)",br:"rgba(194,65,12,.3)"},emergency:{label:"Seek Care Today",tx:"#B91C1C",bg:"rgba(185,28,28,.1)",br:"rgba(185,28,28,.3)"}};
+    if (dermHistory.length === 0) return (
+      <div style={{ textAlign:"center", padding:"48px 20px" }}>
+        <div style={{ fontSize:40, marginBottom:16, opacity:.3 }}>✦</div>
+        <div style={{ fontFamily:FF, fontSize:20, fontStyle:"italic", color:MU, marginBottom:8 }}>No skin checks yet</div>
+        <div style={{ fontFamily:FS, fontSize:13, color:DM, lineHeight:1.6, marginBottom:24 }}>Each check is saved here so you can revisit findings and track changes over time.</div>
+        <button onClick={() => setSkinTab("analyse")}
+          style={{ padding:"12px 28px", borderRadius:10, border:"none",
+            background:`linear-gradient(130deg,#1A2B4A,${G})`,
+            fontFamily:FF, fontSize:15, fontStyle:"italic", color:"white", cursor:"pointer" }}>
+          Start First Check →
+        </button>
+      </div>
+    );
+    return (
+      <div style={{ padding:"8px 0 32px" }}>
+        <div style={{ fontFamily:FS, fontSize:12, color:MU, marginBottom:14, lineHeight:1.6 }}>
+          Each check may cover a different area of skin — tap any entry to revisit its full findings.
+        </div>
+        <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+          {dermHistory.map(entry => {
+            const findings = entry.result?.findings || [];
+            const worstU = findings.reduce((w,f)=>{const o=["routine","soon","urgent","emergency"];return o.indexOf(f.urgency)>o.indexOf(w)?f.urgency:w},"routine");
+            const u = URG_MAP[worstU] || URG_MAP.routine;
+            return (
+              <div key={entry.id} onClick={() => { setSkinResult(entry.result); setMonoPreview(entry.compare || entry.thumb); setSkinPhase("results"); setSkinTab("analyse"); setSelectedId(null); }}
+                style={{ ...card({ padding:0, overflow:"hidden", cursor:"pointer" }) }}>
+                <div style={{ display:"flex", gap:12, padding:"12px 16px", alignItems:"center" }}>
+                  <img src={entry.thumb} style={{ width:48, height:48, borderRadius:8, objectFit:"cover", flexShrink:0 }}/>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontFamily:FF, fontSize:14, fontStyle:"italic", color:TX, marginBottom:3, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                      {findings[0]?.condition || "Skin Check"}{findings.length > 1 ? ` +${findings.length-1}` : ""}
+                    </div>
+                    <div style={{ fontFamily:FS, fontSize:11, color:MU }}>
+                      {new Date(entry.date).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"})} · {findings.length} finding{findings.length!==1?"s":""}
+                    </div>
+                  </div>
+                  <div style={{ display:"inline-flex", alignItems:"center", padding:"3px 10px", borderRadius:12, background:u.bg, border:`1px solid ${u.br}`, flexShrink:0 }}>
+                    <span style={{ fontFamily:FS, fontSize:10, fontWeight:600, color:u.tx }}>{u.label}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  /* ── Skin Check Results Renderer ──────────────────────────────────── */
+  const renderSkinResults = () => {
+    if (!skinResult) return null;
+    const findings = skinResult.findings || [];
+    const URG_MAP  = {routine:{label:"No Immediate Concern",tx:"#14532D",bg:"rgba(21,128,61,.1)",br:"rgba(21,128,61,.3)",icon:"✓"},soon:{label:"See a Doctor Soon",tx:"#7C2D12",bg:"rgba(146,64,14,.1)",br:"rgba(146,64,14,.3)",icon:"◷"},urgent:{label:"See a Doctor Promptly",tx:"#C2410C",bg:"rgba(194,65,12,.1)",br:"rgba(194,65,12,.3)",icon:"◷"},emergency:{label:"Seek Care Today",tx:"#B91C1C",bg:"rgba(185,28,28,.1)",br:"rgba(185,28,28,.3)",icon:"⚠"}};
+    const worstU   = findings.reduce((w,f)=>{const o=["routine","soon","urgent","emergency"];return o.indexOf(f.urgency)>o.indexOf(w)?f.urgency:w},"routine");
+    const topUrg   = URG_MAP[worstU];
+    return (
+      <div style={{ padding:"16px 0 32px" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:14 }}>
+          <button onClick={() => { setSkinResult(null); setMonoPreview(null); setMonoContext(""); setSkinPhase("upload"); }} style={{ background:"none", border:"none", fontFamily:FS, fontSize:13, color:MU, cursor:"pointer", padding:0 }}>← New Check</button>
+        </div>
+        <div style={{ ...card({ padding:0, overflow:"hidden", marginBottom:14 }) }}>
+          {monoPreview && <img src={monoPreview} style={{ width:"100%", display:"block", maxHeight:240, objectFit:"cover" }}/>}
+          <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+            <div style={{ fontFamily:FS, fontSize:12, color:MU }}>{findings.length} finding{findings.length!==1?"s":""} identified</div>
+            <div style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 10px", borderRadius:12, background:topUrg.bg, border:`1px solid ${topUrg.br}` }}>
+              <span style={{ fontSize:11, color:topUrg.tx }}>{topUrg.icon}</span>
+              <span style={{ fontFamily:FS, fontSize:11, fontWeight:600, color:topUrg.tx }}>{topUrg.label}</span>
+            </div>
+          </div>
+        </div>
+        {findings.map((f,i) => {
+          const u = URG_MAP[f.urgency]||URG_MAP.routine;
+          const sel = selectedId===f.id;
+          return (
+            <div key={f.id} onClick={()=>setSelectedId(sel?null:f.id)} style={{ ...card({ padding:0, overflow:"hidden", marginBottom:12, border:sel?`2px solid ${u.tx}`:`1px solid ${BR}` }) }}>
+              <div style={{ padding:"12px 16px", display:"flex", alignItems:"center", gap:10, background:sel?u.bg:"white", cursor:"pointer" }}>
+                <div style={{ width:26, height:26, borderRadius:"50%", background:u.tx, flexShrink:0, display:"flex", alignItems:"center", justifyContent:"center", fontFamily:FS, fontSize:12, fontWeight:700, color:"white" }}>{i+1}</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontFamily:FF, fontSize:17, fontStyle:"italic", color:TX, lineHeight:1.2 }}>{f.condition}</div>
+                  <div style={{ display:"flex", alignItems:"center", gap:6, marginTop:3 }}>
+                    <div style={{ display:"inline-flex", padding:"2px 8px", borderRadius:10, background:u.bg, border:`1px solid ${u.br}` }}><span style={{ fontFamily:FS, fontSize:10, fontWeight:600, color:u.tx }}>{u.label}</span></div>
+                    <span style={{ fontFamily:FS, fontSize:10, color:MU }}>{f.confidence} confidence</span>
+                  </div>
+                </div>
+                <span style={{ color:MU, fontSize:14 }}>{sel?"▲":"▼"}</span>
+              </div>
+              {sel && (
+                <div style={{ padding:"14px 16px", borderTop:`1px solid ${BR}` }}>
+                  <p style={{ fontFamily:FS, fontSize:13, color:MU, lineHeight:1.7, margin:"0 0 12px" }}>{f.description}</p>
+                  {f.differential?.length>0 && <div style={{ marginBottom:12 }}><div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:8 }}>Also Possible</div><div style={{ display:"flex", flexWrap:"wrap", gap:6 }}>{f.differential.map(d=><span key={d} style={{ fontFamily:FS, fontSize:12, padding:"3px 9px", borderRadius:8, background:SURF, border:`1px solid ${BR}`, color:MU }}>{d}</span>)}</div></div>}
+                  {f.characteristics?.length>0 && <div style={{ marginBottom:12 }}><div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:8 }}>Observed</div>{f.characteristics.map((c,j)=><div key={j} style={{ display:"flex", gap:7, marginBottom:5 }}><span style={{ color:G, flexShrink:0 }}>◈</span><span style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.5 }}>{c}</span></div>)}</div>}
+                  {f.selfCare?.length>0 && <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(21,128,61,.04)", border:"1px solid rgba(21,128,61,.18)", marginBottom:12 }}><div style={{ fontFamily:FS, fontSize:10, color:"#14532D", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>Self-Care</div>{f.selfCare.map((s,j)=><div key={j} style={{ display:"flex", gap:7, marginBottom:5 }}><span style={{ color:"#14532D", flexShrink:0 }}>✓</span><span style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.5 }}>{s}</span></div>)}</div>}
+                  {f.seekCareWhen && <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(44,74,114,.04)", marginBottom:12 }}><div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.1em", color:G, textTransform:"uppercase", marginBottom:6 }}>When to See a Dermatologist</div><p style={{ fontFamily:FS, fontSize:13, color:TX, lineHeight:1.6, margin:0 }}>{f.seekCareWhen}</p></div>}
+                  {f.redFlags?.length>0 && <div style={{ padding:"10px 12px", borderRadius:8, background:"rgba(185,28,28,.04)", border:"1px solid rgba(185,28,28,.2)", marginBottom:12 }}><div style={{ fontFamily:FS, fontSize:10, color:"#B91C1C", letterSpacing:"0.1em", textTransform:"uppercase", marginBottom:8 }}>⚠ Seek Immediate Care If</div>{f.redFlags.map((r,j)=><div key={j} style={{ display:"flex", gap:7, marginBottom:5 }}><span style={{ color:"#B91C1C", flexShrink:0 }}>!</span><span style={{ fontFamily:FS, fontSize:13, color:"#7F1D1D", lineHeight:1.5 }}>{r}</span></div>)}</div>}
+                  {f.clinicalNote && <p style={{ fontFamily:FS, fontSize:12, color:MU, fontStyle:"italic", margin:"0 0 12px", lineHeight:1.6, padding:"8px 12px", borderRadius:8, background:SURF }}>📋 {f.clinicalNote}</p>}
+                  {f.treatments?.length>0 && (
+                    <div style={{ paddingTop:12, borderTop:`1px solid ${BR}` }}>
+                      <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:G, textTransform:"uppercase", marginBottom:10 }}>Treatment Options</div>
+                      {f.treatments.map((t,j)=>{ const tier=TIER_COLOR[t.tier]||TIER_COLOR.premium; const dt=dtCol(t.downtime); return <div key={j} style={{ padding:"12px 14px", borderRadius:10, background:"rgba(44,74,114,.04)", border:`1px solid rgba(44,74,114,.15)`, marginBottom:8 }}><div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:8, marginBottom:6 }}><div style={{ flex:1 }}><div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:TX, lineHeight:1.2 }}>{t.procedure}</div><div style={{ display:"flex", gap:6, marginTop:5, flexWrap:"wrap" }}><span style={{ fontFamily:FS, fontSize:10, padding:"2px 8px", borderRadius:10, background:tier.bg, border:`1px solid ${tier.br}`, color:tier.tx, fontWeight:600 }}>{tier.label}</span>{t.downtime&&<span style={{ fontFamily:FS, fontSize:10, padding:"2px 8px", borderRadius:10, background:dt.bg, border:`1px solid ${dt.br}`, color:dt.tx }}>{t.downtime==="None"?"No downtime":t.downtime}</span>}</div></div>{t.price&&<div style={{ fontFamily:FF, fontSize:15, fontStyle:"italic", color:G, flexShrink:0 }}>{t.price}</div>}</div>{t.description&&<p style={{ fontFamily:FS, fontSize:12, color:MU, lineHeight:1.6, margin:"4px 0 0" }}>{t.description}</p>}{t.why&&<p style={{ fontFamily:FS, fontSize:11, color:G, lineHeight:1.5, margin:"4px 0 0", fontStyle:"italic" }}>Why it helps: {t.why}</p>}</div>})}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        <div style={{ padding:"11px 14px", borderRadius:10, background:"rgba(44,74,114,.05)", border:`1px solid rgba(44,74,114,.15)` }}>
+          <p style={{ fontFamily:FS, fontSize:11, color:MU, lineHeight:1.65, margin:0 }}><strong>Educational purposes only.</strong> Not a medical diagnosis. Consult a qualified dermatologist.</p>
+        </div>
+      </div>
+    );
+  };
+
   const renderResults = (a, preview) => {
     if (!a) return null;
     const { skinType, fitzpatrickType: analyzedFitz, overallAssessment, analysisConfidence, confidenceNote, positives = [],
@@ -2412,6 +3380,26 @@ Include concentrations when found. List top 3–5 actives.`
             </div>
           ) : (
             <>
+              {/* Auto Before/After — oldest vs latest */}
+              {history.length >= 2 && compareIds.length === 0 && (() => {
+                const sorted = [...history].sort((a,b) => new Date(a.date)-new Date(b.date));
+                const oldF = sorted[0], newF = sorted[sorted.length-1];
+                if (!oldF.thumb || !newF.thumb) return null;
+                return (
+                  <div style={{ marginBottom:20 }}>
+                    <BeforeAfterSlider
+                      beforeSrc={oldF.compare || oldF.thumb} afterSrc={newF.compare || newF.thumb}
+                      beforeLabel={fmtDate(oldF.date)} afterLabel={fmtDate(newF.date)}
+                      beforeScore={healthScore(oldF.concerns)} afterScore={healthScore(newF.concerns)}
+                    />
+                    <div style={{ fontFamily:FS, fontSize:11, color:DM, textAlign:"center", marginTop:8, lineHeight:1.6 }}>
+                      Drag to compare your first and latest analysis<br/>
+                      <span style={{ color:G }}>Tap any two analyses below to compare a specific pair</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
               {compareIds.length > 0 && (
                 <div style={{ marginBottom:12, padding:"8px 12px", background:"rgba(44,74,114,.08)", border:"1px solid rgba(44,74,114,.2)", borderRadius:8, fontFamily:FS, fontSize:11, color:G }}>
                   {compareIds.length === 1 ? "Select one more to compare" : "2 selected — tap Compare to continue"}
@@ -2489,7 +3477,7 @@ Include concentrations when found. List top 3–5 actives.`
             </>
           )}
 
-          <button className="lbtn" onClick={reset}
+          <button className="lbtn" onClick={() => { setAngles({front:null,left:null,right:null}); setAnalysis(null); setFromHistory(false); setQuality(null); setPhase("upload"); }}
             style={{ marginTop:22, width:"100%", padding:"13px", borderRadius:10, background:"transparent", border:`1px solid ${BR}`, fontFamily:FS, fontSize:12, letterSpacing:"0.12em", color:MU, textTransform:"uppercase", cursor:"pointer" }}>
             + New Analysis
           </button>
@@ -2529,11 +3517,18 @@ Include concentrations when found. List top 3–5 actives.`
 
     return (
       <div className="up0" style={{ paddingBottom:8 }}>
+        {/* Top action row */}
+        <div style={{ display:"flex", justifyContent:"flex-end", paddingTop:14, marginBottom:-6 }}>
+          <button onClick={() => { setAngles({front:null,left:null,right:null}); setAnalysis(null); setFromHistory(false); setQuality(null); setPhase("upload"); }}
+            style={{ padding:"7px 14px", borderRadius:8, background:"transparent", border:`1px solid ${BR}`,
+              fontFamily:FS, fontSize:11, letterSpacing:"0.08em", color:G, textTransform:"uppercase", cursor:"pointer", fontWeight:600 }}>
+            + New Analysis
+          </button>
+        </div>
         {activeTab === "summary"    && summaryTab()}
         {activeTab === "concerns"   && concernsTab()}
         {activeTab === "treatments" && treatmentsTab()}
         {activeTab === "progress"   && progressTab()}
-        {tabBar()}
       </div>
     );
   };
@@ -2593,8 +3588,9 @@ Include concentrations when found. List top 3–5 actives.`
         {older.thumb && newer.thumb && (
           <div style={{ marginBottom:20 }}>
             <BeforeAfterSlider
-              beforeSrc={older.thumb} afterSrc={newer.thumb}
+              beforeSrc={older.compare || older.thumb} afterSrc={newer.compare || newer.thumb}
               beforeLabel={fmtDate(older.date)} afterLabel={fmtDate(newer.date)}
+              beforeScore={healthScore(older.concerns)} afterScore={healthScore(newer.concerns)}
             />
             <div style={{ fontFamily:FS, fontSize:11, color:DM, textAlign:"center", marginTop:8 }}>
               Drag the handle to compare
@@ -2707,6 +3703,151 @@ Include concentrations when found. List top 3–5 actives.`
   };
 
   /* ── LAYOUT ─────────────────────────────────────────────────────── */
+
+  /* ── Provider location ─────────────────────────────────────────── */
+  const getProviderLocation = () => {
+    if (!navigator.geolocation) {
+      setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
+      return;
+    }
+    setGeoLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        const { latitude: lat, longitude: lng } = pos.coords;
+        setProviderMapUrl(`https://maps.google.com/maps?q=medspa+aesthetic+clinic&output=embed&center=${lat},${lng}&zoom=13`);
+        setGeoLoading(false);
+      },
+      () => {
+        setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
+        setGeoLoading(false);
+      },
+      { timeout:8000 }
+    );
+  };
+
+  /* ── Home Tab ─────────────────────────────────────────────────────── */
+  const renderHomeTab = () => {
+    const hr = new Date().getHours();
+    const greeting = hr<12?"Good morning":hr<17?"Good afternoon":"Good evening";
+    const firstName = profile?.name ? profile.name.trim().split(" ")[0] : null;
+
+    // Face score from latest analysis
+    const faceScore = analysis ? (() => {
+      const concerns = analysis.concerns || [];
+      const ded = concerns.reduce((t,c)=>t+(c.severity==="Significant"?18:c.severity==="Moderate"?10:4),0);
+      return Math.max(10, 100-ded);
+    })() : null;
+    const faceColor = faceScore ? (faceScore>=80?"#14532D":faceScore>=60?"#7C2D12":"#B91C1C") : MU;
+
+    // Latest hair result
+    const latestHair = hairHistory.length > 0 ? hairHistory[0] : null;
+    const latestSkin = dermHistory.length > 0 ? dermHistory[0] : null;
+
+    const URG_HAIR = {routine:{tx:"#14532D",label:"Preventive"},soon:{tx:"#7C2D12",label:"Early Intervention"},urgent:{tx:"#C2410C",label:"Active Loss"},emergency:{tx:"#B91C1C",label:"Consult Today"}};
+    const URG_SKIN = {routine:{tx:"#14532D",label:"No Concern"},soon:{tx:"#7C2D12",label:"See Doctor Soon"},urgent:{tx:"#C2410C",label:"See Doctor Promptly"},emergency:{tx:"#B91C1C",label:"Seek Care Today"}};
+
+    return (
+      <div style={{ padding:"24px 0 32px" }}>
+        {/* Greeting */}
+        <div style={{ fontFamily:FF, fontSize:17, fontStyle:"italic", color:MU, marginBottom:24 }}>
+          {greeting}{firstName ? `, ${firstName}` : ""}.
+        </div>
+
+        {/* Face card */}
+        <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:MU, textTransform:"uppercase", marginBottom:10 }}>Face Analysis</div>
+        {analysis ? (
+          <div onClick={() => { setAppTab("face"); if(phase!=="results") setPhase("results"); }}
+            className="hcard" style={{ ...card({ padding:"16px", marginBottom:20 }), display:"flex", alignItems:"center", gap:16 }}>
+            {angles?.front?.preview && <img src={angles.front.preview} style={{ width:52, height:52, borderRadius:10, objectFit:"cover", flexShrink:0 }} />}
+            <div style={{ flex:1 }}>
+              <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:4 }}>
+                <span style={{ fontFamily:FF, fontSize:36, color:faceColor, lineHeight:1 }}>{faceScore}</span>
+                <span style={{ fontFamily:FS, fontSize:12, color:faceColor, fontWeight:600 }}>/100</span>
+                <span style={{ fontFamily:FS, fontSize:12, color:MU }}>Skin Health</span>
+              </div>
+              <div style={{ fontFamily:FS, fontSize:12, color:MU, lineHeight:1.4 }}>{analysis.skinType} · {(analysis.concerns||[]).length} concern{(analysis.concerns||[]).length!==1?"s":""}</div>
+            </div>
+            <span style={{ fontFamily:FS, fontSize:18, color:DM }}>→</span>
+          </div>
+        ) : (
+          <div onClick={() => setAppTab("face")} className="hcard"
+            style={{ ...card({ padding:"16px", marginBottom:20, border:`2px dashed ${BR}`, background:"rgba(44,74,114,.02)" }), display:"flex", alignItems:"center", gap:14, cursor:"pointer" }}>
+            <span style={{ fontSize:26, color:DM, flexShrink:0 }}>◎</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:MU }}>Start a Face Analysis</div>
+              <div style={{ fontFamily:FS, fontSize:12, color:DM, marginTop:2 }}>Skin health score, concerns & treatments</div>
+            </div>
+            <span style={{ fontFamily:FS, fontSize:18, color:DM }}>→</span>
+          </div>
+        )}
+
+        {/* Hair card */}
+        <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:MU, textTransform:"uppercase", marginBottom:10 }}>Hair & Scalp</div>
+        {latestHair ? (() => {
+          const findings = latestHair.result?.findings || [];
+          const top = findings[0];
+          const wu = findings.reduce((w,f)=>{const o=["routine","soon","urgent","emergency"];return o.indexOf(f.urgency)>o.indexOf(w)?f.urgency:w},"routine");
+          const uc = URG_HAIR[wu]||URG_HAIR.routine;
+          return (
+            <div onClick={() => { setAppTab("hair"); setHairPhase("results"); setHairResult(latestHair.result); }}
+              className="hcard" style={{ ...card({ padding:"16px", marginBottom:20 }), display:"flex", alignItems:"center", gap:16 }}>
+              {latestHair.thumb && <img src={latestHair.thumb} style={{ width:52, height:52, borderRadius:10, objectFit:"cover", flexShrink:0 }} />}
+              <div style={{ flex:1 }}>
+                <div style={{ display:"flex", alignItems:"baseline", gap:8, marginBottom:4 }}>
+                  <span style={{ fontFamily:FF, fontSize:28, color:uc.tx, lineHeight:1, fontWeight:300 }}>{latestHair.result?.densityScore || "—"}</span>
+                  {latestHair.result?.densityScore && <span style={{ fontFamily:FS, fontSize:11, color:uc.tx, fontWeight:600 }}>Density</span>}
+                </div>
+                <div style={{ fontFamily:FF, fontSize:14, fontStyle:"italic", color:TX, marginBottom:4 }}>{top?.condition || "Hair Analysis"}</div>
+                <span style={{ fontFamily:FS, fontSize:11, padding:"2px 8px", borderRadius:10, background:"rgba(44,74,114,.08)", border:`1px solid rgba(44,74,114,.2)`, color:uc.tx }}>{uc.label}</span>
+              </div>
+              <span style={{ fontFamily:FS, fontSize:18, color:DM }}>→</span>
+            </div>
+          );
+        })() : (
+          <div onClick={() => setAppTab("hair")} className="hcard"
+            style={{ ...card({ padding:"16px", marginBottom:20, border:`2px dashed ${BR}`, background:"rgba(44,74,114,.02)" }), display:"flex", alignItems:"center", gap:14, cursor:"pointer" }}>
+            <span style={{ fontSize:26, color:DM, flexShrink:0 }}>◈</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:MU }}>Start a Hair Analysis</div>
+              <div style={{ fontFamily:FS, fontSize:12, color:DM, marginTop:2 }}>Norwood/Ludwig classification & restoration plan</div>
+            </div>
+            <span style={{ fontFamily:FS, fontSize:18, color:DM }}>→</span>
+          </div>
+        )}
+
+        {/* Skin card */}
+        <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.12em", color:MU, textTransform:"uppercase", marginBottom:10 }}>Skin Check</div>
+        {latestSkin ? (() => {
+          const findings = latestSkin.result?.findings || [];
+          const top = findings[0];
+          const wu = findings.reduce((w,f)=>{const o=["routine","soon","urgent","emergency"];return o.indexOf(f.urgency)>o.indexOf(w)?f.urgency:w},"routine");
+          const uc = URG_SKIN[wu]||URG_SKIN.routine;
+          return (
+            <div onClick={() => { setAppTab("skin"); setSkinPhase("results"); setSkinResult(latestSkin.result); setMonoPreview(latestSkin.compare || latestSkin.thumb); }}
+              className="hcard" style={{ ...card({ padding:"16px", marginBottom:20 }), display:"flex", alignItems:"center", gap:16 }}>
+              {latestSkin.thumb && <img src={latestSkin.thumb} style={{ width:52, height:52, borderRadius:10, objectFit:"cover", flexShrink:0 }} />}
+              <div style={{ flex:1 }}>
+                <div style={{ fontFamily:FF, fontSize:15, fontStyle:"italic", color:TX, marginBottom:4 }}>{top?.condition || "Skin Check"}{findings.length>1?` +${findings.length-1}`:""}</div>
+                <span style={{ fontFamily:FS, fontSize:11, padding:"2px 8px", borderRadius:10, background:"rgba(44,74,114,.08)", border:`1px solid rgba(44,74,114,.2)`, color:uc.tx }}>{uc.label}</span>
+              </div>
+              <span style={{ fontFamily:FS, fontSize:18, color:DM }}>→</span>
+            </div>
+          );
+        })() : (
+          <div onClick={() => setAppTab("skin")} className="hcard"
+            style={{ ...card({ padding:"16px", marginBottom:20, border:`2px dashed ${BR}`, background:"rgba(44,74,114,.02)" }), display:"flex", alignItems:"center", gap:14, cursor:"pointer" }}>
+            <span style={{ fontSize:26, color:DM, flexShrink:0 }}>✦</span>
+            <div style={{ flex:1 }}>
+              <div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:MU }}>Start a Skin Check</div>
+              <div style={{ fontFamily:FS, fontSize:12, color:DM, marginTop:2 }}>Identify a specific skin concern anywhere on the body</div>
+            </div>
+            <span style={{ fontFamily:FS, fontSize:18, color:DM }}>→</span>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <>
       <style>{`
@@ -2731,7 +3872,7 @@ Include concentrations when found. List top 3–5 actives.`
       `}</style>
       <div style={{ background:BG, minHeight:"100vh", color:TX, fontFamily:FS }}>
       {phase !== "welcome" && (
-      <div style={{ background:"#1A2B4A", padding:"16px 22px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+      <div style={{ position:"fixed", top:0, left:0, right:0, zIndex:110, background:"#1A2B4A", padding:"16px 22px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
         <div style={{ cursor:"pointer", display:"flex", alignItems:"center", gap:0 }} onClick={reset}>
           <div>
             <div style={{ display:"flex", alignItems:"center", lineHeight:1, gap:0, marginBottom:4 }}>
@@ -2772,18 +3913,167 @@ Include concentrations when found. List top 3–5 actives.`
         </div>
       </div>
       )}
-      <div style={{ maxWidth:680, margin:"0 auto", padding:"0 22px" }}>
+      <div style={{ maxWidth:680, margin:"0 auto", padding: phase === "welcome" ? "0 22px 80px" : "86px 22px 140px" }}>
+        {/* ── Modal overlays (profile/onboarding/misc) ── */}
         {phase === "welcome"       && renderWelcome()}
         {phase === "treatmentLog"   && renderTreatmentLog()}
-        {phase === "upload"        && renderUpload()}
         {phase === "onboarding" && renderOnboarding(false)}
         {phase === "profile"    && renderOnboarding(true)}
-        {phase === "analyzing" && renderAnalyzing()}
-        {phase === "results"   && renderResults(analysis, angles?.front?.preview)}
-        {phase === "compare"   && renderCompare()}
+        {phase === "compare" && appTab === "face" && renderCompare()}
+
+        {/* ── Tab content ── */}
+        {(!["welcome","treatmentLog","onboarding","profile"].includes(phase) && !(phase==="compare" && appTab==="face")) && (<>
+          {appTab === "home" && renderHomeTab()}
+
+          {appTab === "face" && (<>
+            {phase === "upload"    && renderUpload()}
+            {phase === "analyzing" && renderAnalyzing()}
+            {phase === "results"   && renderResults(analysis, angles?.front?.preview)}
+          </>)}
+
+          {appTab === "hair" && (<>
+            {/* Analyse sub-tab */}
+            {(hairTab === "analyse" || !hairProfile) && (<>
+              {hairPhase === "upload" && !hairProfile && renderHairIntake()}
+              {hairPhase === "upload" && hairProfile  && renderUpload()}
+              {hairPhase === "analyzing" && renderAnalyzing()}
+              {hairPhase === "results"   && renderHairResults()}
+            </>)}
+            {/* Progress sub-tab */}
+            {hairTab === "progress" && hairProfile && hairPhase !== "analyzing" && renderHairProgress()}
+          </>)}
+
+          {appTab === "skin" && (<>
+            {skinTab === "analyse" && (<>
+              {skinPhase === "upload"    && renderUpload()}
+              {skinPhase === "analyzing" && renderAnalyzing()}
+              {skinPhase === "results"   && renderSkinResults()}
+            </>)}
+            {skinTab === "history" && skinPhase !== "analyzing" && renderSkinHistory()}
+          </>)}
+        </>)}
       </div>
+
+      {/* ── Fixed bottom navigation stack ────────────────────────────── */}
+      {!["welcome","onboarding","profile"].includes(phase) && (
+        <div style={{ position:"fixed", bottom:0, left:0, right:0, zIndex:100,
+          background:"white", boxShadow:"0 -2px 12px rgba(44,74,114,.08)" }}>
+
+        {/* Row 1 — contextual sub-tabs */}
+        {appTab === "face" && phase === "results" && analysis && (
+          <div style={{ display:"flex", borderTop:`1px solid ${BR}`, background:BG }}>
+            {[
+              { key:"summary",    icon:"◎", label:"Summary"    },
+              { key:"concerns",   icon:"◈", label:"Concerns"   },
+              { key:"treatments", icon:"✦", label:"Treatments" },
+              { key:"progress",   icon:"≋", label:"Progress"   },
+            ].map(tab => {
+              const isActive = activeTab === tab.key;
+              const cns = analysis?.concerns || [];
+              const badge = tab.key === "progress" && history.length > 0 && !isActive ? history.length
+                          : tab.key === "concerns" && cns.length > 0 && !isActive ? cns.length : 0;
+              return (
+                <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+                  style={{ flex:1, padding:"9px 4px 10px", display:"flex", alignItems:"center", justifyContent:"center", gap:5,
+                    background:"none", border:"none", cursor:"pointer", position:"relative",
+                    borderTop: isActive ? `2px solid ${G}` : "2px solid transparent" }}>
+                  <span style={{ fontSize:14, color: isActive ? G : DM, lineHeight:1 }}>{tab.icon}</span>
+                  <span style={{ fontFamily:FS, fontSize:9, letterSpacing:"0.1em", color: isActive ? G : MU, textTransform:"uppercase" }}>{tab.label}</span>
+                  {badge > 0 && (
+                    <div style={{ position:"absolute", top:6, left:"calc(50% + 8px)", minWidth:14, height:14, borderRadius:7, background:G, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px" }}>
+                      <span style={{ fontFamily:FS, fontSize:8, fontWeight:700, color:"white" }}>{badge > 9 ? "9+" : badge}</span>
+                    </div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {appTab === "hair" && hairProfile && (
+          <div style={{ display:"flex", borderTop:`1px solid ${BR}`, background:BG }}>
+            {[["analyse","◈","Analyse"],["progress","≋","Progress"]].map(([key,icon,label]) => (
+              <button key={key} onClick={() => hairPhase !== "analyzing" && setHairTab(key)}
+                style={{ flex:1, padding:"9px 4px 10px", display:"flex", alignItems:"center", justifyContent:"center", gap:5,
+                  background:"none", border:"none", position:"relative",
+                  cursor: hairPhase==="analyzing" ? "default" : "pointer",
+                  opacity: hairPhase==="analyzing" ? .4 : 1,
+                  borderTop: hairTab===key ? `2px solid ${G}` : "2px solid transparent" }}>
+                <span style={{ fontSize:14, color: hairTab===key ? G : DM, lineHeight:1 }}>{icon}</span>
+                <span style={{ fontFamily:FS, fontSize:9, letterSpacing:"0.1em", color: hairTab===key ? G : MU, textTransform:"uppercase" }}>{label}</span>
+                {key==="progress" && hairHistory.length > 0 && hairTab!==key && (
+                  <div style={{ position:"absolute", top:6, left:"calc(50% + 12px)", minWidth:14, height:14, borderRadius:7, background:G, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px" }}>
+                    <span style={{ fontFamily:FS, fontSize:8, fontWeight:700, color:"white" }}>{hairHistory.length > 9 ? "9+" : hairHistory.length}</span>
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {appTab === "skin" && (
+          <div style={{ display:"flex", borderTop:`1px solid ${BR}`, background:BG }}>
+            {[["analyse","✦","Analyse"],["history","≋","History"]].map(([key,icon,label]) => (
+              <button key={key} onClick={() => skinPhase !== "analyzing" && setSkinTab(key)}
+                style={{ flex:1, padding:"9px 4px 10px", display:"flex", alignItems:"center", justifyContent:"center", gap:5,
+                  background:"none", border:"none", position:"relative",
+                  cursor: skinPhase==="analyzing" ? "default" : "pointer",
+                  opacity: skinPhase==="analyzing" ? .4 : 1,
+                  borderTop: skinTab===key ? `2px solid ${G}` : "2px solid transparent" }}>
+                <span style={{ fontSize:14, color: skinTab===key ? G : DM, lineHeight:1 }}>{icon}</span>
+                <span style={{ fontFamily:FS, fontSize:9, letterSpacing:"0.1em", color: skinTab===key ? G : MU, textTransform:"uppercase" }}>{label}</span>
+                {key==="history" && dermHistory.length > 0 && skinTab!==key && (
+                  <div style={{ position:"absolute", top:6, left:"calc(50% + 12px)", minWidth:14, height:14, borderRadius:7, background:G, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px" }}>
+                    <span style={{ fontFamily:FS, fontSize:8, fontWeight:700, color:"white" }}>{dermHistory.length > 9 ? "9+" : dermHistory.length}</span>
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Row 2 — app-level tabs */}
+        <div style={{ borderTop:`1px solid ${BR}`,
+          display:"flex", alignItems:"stretch" }}>
+          {[
+            { key:"home", icon:"⌂", label:"Home" },
+            { key:"face", icon:"◎", label:"Face"  },
+            { key:"hair", icon:"◈", label:"Hair"  },
+            { key:"skin", icon:"✦", label:"Skin"  },
+          ].map(({ key, icon, label }) => {
+            const active = appTab === key;
+            // Badge: show dot if that tab has results
+            const hasDot = (key==="face"&&analysis) || (key==="hair"&&hairHistory.length>0) || (key==="skin"&&dermHistory.length>0);
+            return (
+              <button key={key}
+                onClick={() => {
+                  setAppTab(key);
+                  setError(null);
+                  // Leaving a modal phase (compare/treatmentLog) — restore results view
+                  if (["compare","treatmentLog"].includes(phase)) { setPhase("results"); setCompareIds([]); }
+                  // Navigate to results if available, else upload
+                  if (key==="face") { if(analysis || history.length>0) { if(!analysis && history.length>0) { const l=[...history].sort((a,b)=>new Date(b.date)-new Date(a.date))[0]; setAnalysis(l); setAngles({front:{preview:l.thumb,b64:l.thumb.split(",")[1]},left:null,right:null}); setFromHistory(true); } setPhase("results"); } else setPhase("upload"); }
+                  if (key==="hair") { if(hairHistory.length>0&&hairResult) setHairPhase("results"); }
+                  if (key==="skin") { if(dermHistory.length>0&&skinResult) setSkinPhase("results"); }
+                }}
+                style={{ flex:1, padding:"10px 4px 14px", display:"flex", flexDirection:"column",
+                  alignItems:"center", gap:3, background:"none", border:"none", cursor:"pointer",
+                  position:"relative" }}>
+                {hasDot && !active && (
+                  <div style={{ position:"absolute", top:8, right:"calc(50% - 12px)", width:6, height:6, borderRadius:"50%", background:G }} />
+                )}
+                <span style={{ fontSize:18, color: active ? G : DM, lineHeight:1, transition:"color .15s" }}>{icon}</span>
+                <span style={{ fontFamily:FS, fontSize:9, letterSpacing:"0.1em", color: active ? G : MU,
+                  textTransform:"uppercase", transition:"color .15s", fontWeight: active ? 600 : 400 }}>{label}</span>
+                {active && <div style={{ position:"absolute", bottom:0, left:"20%", right:"20%", height:2, borderRadius:"1px 1px 0 0", background:G }} />}
+              </button>
+            );
+          })}
+        </div>
+        </div>
+      )}
     {/* ── Floating Feedback Button ───────────────────────────────────── */}
-    <div style={{ position:"fixed", bottom:76, right:16, zIndex:150 }}>
+    <div style={{ position:"fixed", bottom:118, right:16, zIndex:150 }}>
       <button onClick={() => setShowFeedback(true)}
         style={{ padding:"8px 14px", borderRadius:20, background:"#1A2B4A",
           border:"1px solid rgba(255,255,255,.22)", fontFamily:FS, fontSize:11,
@@ -2876,24 +4166,6 @@ Include concentrations when found. List top 3–5 actives.`
     </>
   );
 }
-  const getProviderLocation = () => {
-    if (!navigator.geolocation) {
-      setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
-      return;
-    }
-    setGeoLoading(true);
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const { latitude: lat, longitude: lng } = pos.coords;
-        setProviderMapUrl(`https://maps.google.com/maps?q=medspa+aesthetic+clinic&output=embed&center=${lat},${lng}&zoom=13`);
-        setGeoLoading(false);
-      },
-      () => {
-        setProviderMapUrl("https://maps.google.com/maps?q=medspa+aesthetics+near+me&output=embed");
-        setGeoLoading(false);
-      },
-      { timeout:8000 }
-    );
-  };
+
 
 
