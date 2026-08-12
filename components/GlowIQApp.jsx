@@ -798,7 +798,11 @@ densityScore: integer 0-100. 85-100=normal, 70-84=mildly reduced, 55-69=moderate
           messages:[{ role:"user", content }]
         })
       });
-      const data  = await res.json();
+      const raw = await res.text();
+      let data;
+      try { data = JSON.parse(raw); }
+      catch { throw new Error(res.status === 504 || raw.includes("TIMEOUT") ? "Analysis timed out — try again with fewer photos or a smaller image" : `Server error (${res.status})`); }
+      if (!res.ok) throw new Error(data?.error || `Request failed (${res.status})`);
       const text  = data.content?.[0]?.text || "";
       const parsed = JSON.parse(text.replace(/```json\n?|```/g,"").trim());
       const findings = parsed.findings || [{ ...parsed, id:1 }];
@@ -899,8 +903,11 @@ densityScore: integer 0-100. 85-100=normal, 70-84=mildly reduced, 55-69=moderate
           { type:"text", text: promptWithFitz },
         ]}],
       })});
-      const j1 = await r1.json();
-      if (j1.error) throw new Error(`Analysis: ${j1.error.message}`);
+      const t1 = await r1.text();
+      let j1;
+      try { j1 = JSON.parse(t1); }
+      catch { throw new Error(r1.status === 504 ? "Analysis timed out — please try again" : `Server error (${r1.status}) — please try again`); }
+      if (!r1.ok || j1.error) throw new Error(`Analysis: ${j1?.error?.message || j1?.error || r1.status}`);
       const result = parseJSON(j1.content?.map(b=>b.text||"").join("")??  "");
       if (profFitz) result.fitzpatrickType = profFitz;
       result.recommendations = [];
@@ -921,7 +928,8 @@ densityScore: integer 0-100. 85-100=normal, 70-84=mildly reduced, 55-69=moderate
           system:"You are a clinical aesthetic treatment specialist. Generate targeted recommendations based on identified skin concerns. Return only JSON.",
           messages:[{ role:"user", content:[{ type:"text", text: RECS_PROMPT(result.concerns, profileCtx, null) }]}],
         })});
-        const j2 = await r2.json();
+        let j2 = {};
+        try { j2 = JSON.parse(await r2.text()); } catch { j2 = { error:"parse" }; }
         if (!j2.error) {
           try {
             const recs = parseJSON(j2.content?.map(b=>b.text||"").join("")??"");
