@@ -1,0 +1,8 @@
+[{
+      "relation": ["delegate_permission/common.handle_all_urls"],
+      "target": {
+        "namespace": "android_app",
+        "package_name": "com.glowiq.app",
+        "sha256_cert_fingerprints": ["58:A7:EE:F0:86:87:A8:0B:5D:E4:33:BB:79:39:23:D3:AC:B4:47:8E:FD:E1:B2:11:68:3D:AD:0D:94:42:61:F7"]
+      }
+    }]
