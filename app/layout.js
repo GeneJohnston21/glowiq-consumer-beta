@@ -1,4 +1,5 @@
 import './globals.css'
+import RegisterSW from '../components/RegisterSW'
 
 export const metadata = {
   title: 'GlowIQ — Skin Roadmap',
@@ -12,7 +13,7 @@ export const metadata = {
 }
 
 export const viewport = {
-  themeColor: '#2C4A72',
+  themeColor: '#1A2B4A',
   width: 'device-width',
   initialScale: 1,
   maximumScale: 1,
@@ -24,7 +25,10 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="apple-touch-icon" href="/icons/icon-192.png" />
       </head>
-      <body>{children}</body>
+      <body>
+        <RegisterSW />
+        {children}
+      </body>
     </html>
   )
 }
