@@ -583,6 +583,7 @@ export default function GlowIQ() {
   const [hairIntakeStep, setHairIntakeStep] = useState(0);
   const [hairTab,        setHairTab]        = useState("analyse"); // "analyse"|"progress"
   const [skinTab,        setSkinTab]        = useState("analyse"); // "analyse"|"history"
+  const [photoSource,    setPhotoSource]    = useState("camera");  // "camera"|"gallery" — camera adds capture attr on mobile
   const [sliderPos,      setSliderPos]      = useState(50);        // before/after slider
   const [appTab,       setAppTab]       = useState("home");   // "home"|"face"|"hair"|"skin"
   const [hairPhase,    setHairPhase]    = useState("upload"); // "upload"|"analyzing"|"results"
@@ -1866,6 +1867,21 @@ Include concentrations when found. List top 3–5 actives.`
     );
   };
 
+  const SourceToggle = () => (
+    <div style={{ display:"flex", gap:0, borderRadius:10, border:`1px solid ${BR}`, overflow:"hidden", marginBottom:16, alignSelf:"stretch" }}>
+      {[["camera","📷 Camera"],["gallery","🖼️ Gallery"]].map(([key,label]) => (
+        <button key={key} onClick={() => setPhotoSource(key)}
+          style={{ flex:1, padding:"9px 0", border:"none", cursor:"pointer",
+            background: photoSource===key ? "rgba(44,74,114,.1)" : "white",
+            fontFamily:FS, fontSize:12, fontWeight: photoSource===key ? 600 : 400,
+            color: photoSource===key ? G : MU, transition:"all .15s" }}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+  const captureProps = photoSource === "camera" ? { capture:"environment" } : {};
+
   const renderUpload = () => {
     const photoCount = Object.values(angles).filter(Boolean).length;
     const blocked = quality && !quality.checking && quality.score < 40;
@@ -1883,7 +1899,8 @@ Include concentrations when found. List top 3–5 actives.`
       return (
         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"24px 0 64px", width:"100%", maxWidth:520 }}>
           <div style={{ fontFamily:FF, fontSize:22, fontWeight:300, color:TX, margin:"0 0 4px", fontStyle:"italic", alignSelf:"flex-start" }}>Hair & Scalp Analysis</div>
-          <div style={{ fontFamily:FS, fontSize:13, color:MU, marginBottom:20, lineHeight:1.5, alignSelf:"flex-start" }}>Upload up to 4 angles for a comprehensive assessment. Crown is required — each additional angle improves accuracy.</div>
+          <div style={{ fontFamily:FS, fontSize:13, color:MU, marginBottom:16, lineHeight:1.5, alignSelf:"flex-start" }}>Upload up to 4 angles for a comprehensive assessment. Crown is required — each additional angle improves accuracy.</div>
+          <SourceToggle />
 
           {/* Zone grid */}
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12, width:"100%", marginBottom:20 }}>
@@ -1911,7 +1928,7 @@ Include concentrations when found. List top 3–5 actives.`
                       <div style={{ fontFamily:FS, fontSize:10, color:DM, lineHeight:1.4 }}>{z.tip}</div>
                     </div>
                   )}
-                  <input id={`hair_${z.key}`} type="file" accept="image/*" style={{ display:"none" }}
+                  <input id={`hair_${z.key}`} type="file" accept="image/*" {...captureProps} style={{ display:"none" }}
                     onChange={e => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setHairAngles(a=>({...a,[z.key]:ev.target.result})); r.readAsDataURL(f); }} />
                 </div>
               );
@@ -1963,6 +1980,7 @@ Include concentrations when found. List top 3–5 actives.`
         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", padding:"24px 0 64px", width:"100%", maxWidth:520 }}>
           <div style={{ fontFamily:FF, fontSize:22, fontWeight:300, color:TX, margin:"0 0 4px", fontStyle:"italic", alignSelf:"flex-start" }}>Skin Check</div>
           <div style={{ fontFamily:FS, fontSize:13, color:MU, marginBottom:16, lineHeight:1.5, alignSelf:"flex-start" }}>A clear close-up in natural light gives the best results.</div>
+          <SourceToggle />
           <div onClick={() => document.getElementById("skinFileInput").click()}
             style={{ width:"100%", borderRadius:12, background:"white", border: monoPreview ? `1px solid ${BR}` : `2px dashed ${BR}`, overflow:"hidden", marginBottom:16, cursor:"pointer" }}>
             {monoPreview
@@ -1970,7 +1988,7 @@ Include concentrations when found. List top 3–5 actives.`
               : <div style={{ padding:"40px 20px", textAlign:"center" }}><div style={{ fontSize:36, marginBottom:10, opacity:.35 }}>📷</div><div style={{ fontFamily:FF, fontSize:16, fontStyle:"italic", color:MU }}>Upload photo</div><div style={{ fontFamily:FS, fontSize:12, color:DM, marginTop:4 }}>Fill the frame with the area of concern</div></div>
             }
           </div>
-          <input id="skinFileInput" type="file" accept="image/*" style={{ display:"none" }} onChange={e => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setMonoPreview(ev.target.result); r.readAsDataURL(f); }} />
+          <input id="skinFileInput" type="file" accept="image/*" {...captureProps} style={{ display:"none" }} onChange={e => { const f=e.target.files[0]; if(!f) return; const r=new FileReader(); r.onload=ev=>setMonoPreview(ev.target.result); r.readAsDataURL(f); }} />
           <div style={{ width:"100%", marginBottom:16 }}>
             <div style={{ fontFamily:FS, fontSize:10, letterSpacing:"0.1em", color:MU, textTransform:"uppercase", marginBottom:6 }}>What concerns you? <span style={{ color:DM, textTransform:"none", letterSpacing:0 }}>(optional)</span></div>
             <input type="text" value={monoContext} onChange={e=>setMonoContext(e.target.value)}
@@ -2014,7 +2032,8 @@ Include concentrations when found. List top 3–5 actives.`
 
       <div className="up0" style={{ textAlign:"center", marginBottom:32 }}>
         <h1 style={{ fontFamily:FF, fontSize:52, fontWeight:300, color:TX, letterSpacing:"0.04em", lineHeight:1.1 }}>Skin Analysis</h1>
-        <p style={{ fontFamily:FS, fontSize:13, color:MU, marginTop:8 }}>Front photo required · Side profiles improve accuracy</p>
+        <p style={{ fontFamily:FS, fontSize:13, color:MU, marginTop:8, marginBottom:12 }}>Front photo required · Side profiles improve accuracy</p>
+        <div style={{ width:"100%", maxWidth:520 }}><SourceToggle /></div>
       </div>
 
       {/* Three-zone capture */}
@@ -2023,9 +2042,9 @@ Include concentrations when found. List top 3–5 actives.`
       </div>
 
       {/* Hidden inputs */}
-      <input ref={frontRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => onFile(e.target.files[0], "front")} />
-      <input ref={leftRef}  type="file" accept="image/*" style={{ display:"none" }} onChange={e => onFile(e.target.files[0], "left")} />
-      <input ref={rightRef} type="file" accept="image/*" style={{ display:"none" }} onChange={e => onFile(e.target.files[0], "right")} />
+      <input ref={frontRef} type="file" accept="image/*" {...captureProps} style={{ display:"none" }} onChange={e => onFile(e.target.files[0], "front")} />
+      <input ref={leftRef}  type="file" accept="image/*" {...captureProps} style={{ display:"none" }} onChange={e => onFile(e.target.files[0], "left")} />
+      <input ref={rightRef} type="file" accept="image/*" {...captureProps} style={{ display:"none" }} onChange={e => onFile(e.target.files[0], "right")} />
 
       {/* Front quality gate */}
       {angles.front && (
@@ -3087,7 +3106,7 @@ Include concentrations when found. List top 3–5 actives.`
                       <span style={{ fontFamily:FS, fontSize:10, color:TX, fontWeight:500 }}>{typHi}</span>
                     </div>
                     {/* Center bracket label */}
-                    <div style={{ position:"absolute", top:68, left:pos((typLo+typHi)/2), transform:"translateX(-50%)", textAlign:"center", whiteSpace:"nowrap" }}>
+                    <div style={{ position:"absolute", top:68, left:`clamp(90px, ${pos((typLo+typHi)/2)}, calc(100% - 90px))`, transform:"translateX(-50%)", textAlign:"center", whiteSpace:"nowrap" }}>
                       <div style={{ display:"inline-flex", alignItems:"center", gap:5, padding:"3px 9px", borderRadius:10,
                         background: inRange ? "rgba(21,128,61,.12)" : estDelta > typ.high ? "rgba(185,28,28,.1)" : "rgba(21,128,61,.12)",
                         border: `1px solid ${inRange ? "rgba(21,128,61,.3)" : estDelta > typ.high ? "rgba(185,28,28,.3)" : "rgba(21,128,61,.3)"}` }}>
@@ -3500,36 +3519,6 @@ Include concentrations when found. List top 3–5 actives.`
       );
     };
 
-    // ─ Tab bar ────────────────────────────────────────────────────
-    const tabBar = () => (
-      <div style={{ position:"sticky", bottom:0, display:"flex", background:BG, borderTop:`1px solid ${BR}`, zIndex:20, marginLeft:-22, marginRight:-22 }}>
-        {TABS.map(tab => {
-          const isActive = activeTab === tab.key;
-          const sevWorst  = concerns.some(c=>c.severity==="Significant") ? "Significant"
-                          : concerns.some(c=>c.severity==="Moderate") ? "Moderate"
-                          : concerns.length ? "Mild" : null;
-          const badgeColor= sevWorst==="Significant"?"#B91C1C":sevWorst==="Moderate"?"#7C2D12":sevWorst==="Mild"?"#A16207":G;
-          const badge     = tab.key === "progress" && history.length > 0 && !isActive ? history.length
-                          : tab.key === "concerns"  && concerns.length  > 0 && !isActive ? concerns.length
-                          : 0;
-          return (
-            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              style={{ flex:1, padding:"10px 4px 12px", display:"flex", flexDirection:"row", alignItems:"center", justifyContent:"center", gap:5,
-                background:"none", border:"none", cursor:"pointer", position:"relative",
-                borderTop: isActive ? `2px solid ${G}` : "2px solid transparent", transition:"border-color .15s" }}>
-              <span style={{ fontSize:15, color: isActive ? G : DM, lineHeight:1, transition:"color .15s" }}>{tab.icon}</span>
-              <span style={{ fontFamily:FS, fontSize:9, letterSpacing:"0.1em", color: isActive ? G : MU, textTransform:"uppercase", transition:"color .15s" }}>{tab.label}</span>
-              {badge > 0 && (
-                <div style={{ position:"absolute", top:7, left:"calc(50% + 6px)", minWidth:14, height:14, borderRadius:7, background: tab.key==="concerns" ? badgeColor : G, display:"flex", alignItems:"center", justifyContent:"center", padding:"0 3px" }}>
-                  <span style={{ fontFamily:FS, fontSize:8, fontWeight:700, color:"#F7F4F0" }}>{badge > 9 ? "9+" : badge}</span>
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-    );
-
     return (
       <div className="up0" style={{ paddingBottom:8 }}>
         {/* Top action row */}
@@ -3885,7 +3874,7 @@ Include concentrations when found. List top 3–5 actives.`
         ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}
         ::-webkit-scrollbar-thumb{background:rgba(44,74,114,.28);border-radius:2px}
       `}</style>
-      <div style={{ background:BG, minHeight:"100vh", color:TX, fontFamily:FS }}>
+      <div style={{ background:BG, minHeight:"100vh", color:TX, fontFamily:FS, overflowX:"hidden", maxWidth:"100vw" }}>
       {phase !== "welcome" && (
       <div style={{ position:"fixed", top:0, left:0, right:0, zIndex:110, background:"#1A2B4A", padding:"16px 22px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
         <div style={{ cursor:"pointer", display:"flex", alignItems:"center", gap:0 }} onClick={reset}>
