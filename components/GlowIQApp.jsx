@@ -811,7 +811,14 @@ densityScore: integer 0-100. 85-100=normal, 70-84=mildly reduced, 55-69=moderate
         ? await generateThumb(hairAngles.crown, 200, 0.7)
         : await generateThumb(monoPreview, 200, 0.7);
       const compare = isHair ? await generateThumb(hairAngles.crown, 640, 0.82) : await generateThumb(monoPreview, 640, 0.82);
-      const entry = { id:Date.now(), date:new Date().toISOString(), thumb, compare, mode: isHair ? "hair" : "skin", result:normalised };
+      const entryId = Date.now();
+      // Upload full-res photo for admin review (hair/ or derm/ prefix)
+      let photo_path = null;
+      try {
+        const fullRes = await generateThumb(isHair ? hairAngles.crown : monoPreview, 1200, 0.88);
+        photo_path = await storage.uploadPhoto(`${isHair ? "hair" : "derm"}-${entryId}`, fullRes) ?? null;
+      } catch {}
+      const entry = { id:entryId, date:new Date().toISOString(), thumb, compare, photo_path, mode: isHair ? "hair" : "skin", result:normalised };
       const capHistory = (list) => list.slice(0, 15).map((e, i) => i < 8 ? e : { ...e, compare: undefined });
       if (isHair) {
         setHairResult(normalised);
